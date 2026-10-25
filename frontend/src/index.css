@@ -1,0 +1,67 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --color-espresso: #241711;
+    --color-coffee: #493126;
+    --color-cream: #F8F3EA;
+    --color-latte: #E8D8C3;
+    --color-caramel: #C7834B;
+    --color-sage: #8A9A78;
+    --color-subtext: #766A60;
+  }
+
+  body {
+    background-color: #F8F3EA;
+    color: #241711;
+    font-feature-settings: "rlig" 1, "calt" 1;
+    overflow-x: hidden;
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #F8F3EA;
+}
+::-webkit-scrollbar-thumb {
+  background: #C7A996;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #C7834B;
+}
+
+/* Glassmorphism */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(232, 216, 195, 0.6);
+}
+
+.glass-dark {
+  background: rgba(36, 23, 17, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(199, 131, 75, 0.2);
+}
+
+/* Map marker styling */
+.leaflet-popup-content-wrapper {
+  background: #FFFFFF !important;
+  border-radius: 12px !important;
+  box-shadow: 0 10px 25px -5px rgba(36, 23, 17, 0.15) !important;
+  padding: 0 !important;
+  overflow: hidden;
+}
+.leaflet-popup-content {
+  margin: 0 !important;
+  line-height: 1.4 !important;
+}
+

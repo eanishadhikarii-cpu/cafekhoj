@@ -1,0 +1,4 @@
+# Development-only dependencies — do not install in production
+-r requirements.txt
+pytest>=8.0.0
+pytest-django>=4.8.0
