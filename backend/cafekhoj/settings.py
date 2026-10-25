@@ -235,7 +235,7 @@ SIMPLE_JWT = {
 CORS_ALLOW_ALL_ORIGINS = DEBUG
 
 CORS_ALLOWED_ORIGINS = [
-    origin.strip()
+    origin.strip().rstrip('/')
     for origin in os.getenv(
         'CORS_ALLOWED_ORIGINS',
         'http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000',
@@ -253,7 +253,7 @@ CORS_ALLOW_CREDENTIALS = True
 # The JWT API endpoints themselves are stateless and do not use CSRF cookies,
 # but the Django admin panel does. Set this to your production backend domain.
 CSRF_TRUSTED_ORIGINS = [
-    origin.strip()
+    origin.strip().rstrip('/')
     for origin in os.getenv(
         'CSRF_TRUSTED_ORIGINS',
         'http://localhost:5173,http://127.0.0.1:5173',
