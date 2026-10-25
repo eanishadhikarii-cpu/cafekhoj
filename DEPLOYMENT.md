@@ -135,11 +135,15 @@ This guide details the deployment architecture, configuration steps, and operati
 
 ### 4.2 Connecting Render PostgreSQL
 1. Open database dashboard: `https://dashboard.render.com/d/dpg-dbf2esgae00c73ehsrj0-a`.
-2. Locate the **Connections** block and copy the **Internal Database URL**.
+2. Locate the **Connections** block and copy the **Internal Database URL** (format: `postgres://cafekhoj_db_user:<password>@dpg-dbf2esgae00c73ehsrj0-a/cafekhoj_db`).
 3. In `cafekhoj-api` settings $\rightarrow$ **Environment**, set:
    * `DATABASE_URL` = `<PASTE_INTERNAL_DATABASE_URL>`
+
+> [!WARNING]
+> Do NOT type `${{cafekhoj-db.DATABASE_URL}}` into the Render Web Dashboard. Render's dashboard treats `${{...}}` as literal text. You must paste the actual `postgres://...` string copied from your database connections page.
+
 4. The backend automatically switches to PostgreSQL via `psycopg2`, safely unquotes credentials, and establishes pooled connections (`CONN_MAX_AGE=60`).
-5. **No SQLite Fallback:** In production (`DEBUG=False`), Django will refuse to start if `DATABASE_URL` is missing or invalid, preventing silent fallback.
+5. **No SQLite Fallback:** In production (`DEBUG=False`), Django will refuse to start if `DATABASE_URL` is missing or invalid, preventing silent fallback. During the build asset phase (`collectstatic`), in-memory SQLite compiles static assets safely.
 
 ### 4.3 Database Seeding & Administrator Creation
 In Render's web **Shell** tab:
