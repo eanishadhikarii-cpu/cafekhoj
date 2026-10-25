@@ -106,3 +106,28 @@ class AuditLogListView(generics.ListAPIView):
     permission_classes = [permissions.IsAdminUser]
     serializer_class = AuditLogSerializer
     queryset = AuditLog.objects.all().order_by('-created_at')
+
+
+def health_check(request):
+    """
+    Lightweight health-check endpoint for Render / load balancers.
+    Requires no authentication and actively verifies database connectivity.
+    """
+    from django.http import JsonResponse
+    from django.db import connection
+
+    try:
+        connection.ensure_connection()
+        db_status = 'connected'
+    except Exception as e:
+        return JsonResponse({
+            'status': 'unhealthy',
+            'database': f'error: {str(e)}',
+            'service': 'cafekhoj-api'
+        }, status=503)
+
+    return JsonResponse({
+        'status': 'healthy',
+        'database': db_status,
+        'service': 'cafekhoj-api'
+    }, status=200)

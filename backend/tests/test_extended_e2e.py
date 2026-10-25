@@ -177,3 +177,21 @@ class ExtendedE2ETests(TestCase):
         rev.refresh_from_db()
         self.assertEqual(rev.moderation_status, 'rejected')
 
+    def test_health_check_endpoints(self):
+        """Tests that health check endpoints return 200 without requiring authentication."""
+        # Test /healthz/
+        res_healthz = self.client.get('/healthz/')
+        self.assertEqual(res_healthz.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_healthz.json()['status'], 'healthy')
+        self.assertEqual(res_healthz.json()['database'], 'connected')
+
+        # Test /health/
+        res_health = self.client.get('/health/')
+        self.assertEqual(res_health.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_health.json()['status'], 'healthy')
+
+        # Test /api/v1/health/
+        res_api_health = self.client.get('/api/v1/health/')
+        self.assertEqual(res_api_health.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_api_health.json()['status'], 'healthy')
+

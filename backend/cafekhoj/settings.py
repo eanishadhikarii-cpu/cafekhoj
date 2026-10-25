@@ -1,4 +1,5 @@
 import os
+import sys
 from pathlib import Path
 from datetime import timedelta
 import dotenv
@@ -7,7 +8,9 @@ import dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Load environment variables from .env if present (local development)
-dotenv.load_dotenv(BASE_DIR / '.env')
+dotenv.load_dotenv(BASE_DIR / '.env', override=True)
+
+IS_TESTING = 'test' in sys.argv or any('pytest' in arg for arg in sys.argv)
 
 # ---------------------------------------------------------------------------
 # SECURITY
@@ -32,6 +35,10 @@ ALLOWED_HOSTS = [
     for host in os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1,testserver').split(',')
     if host.strip()
 ]
+# Automatically permit Render's dynamic external hostname if present
+_render_host = os.getenv('RENDER_EXTERNAL_HOSTNAME')
+if _render_host and _render_host not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append(_render_host)
 
 # ---------------------------------------------------------------------------
 # APPLICATION DEFINITION
@@ -109,6 +116,14 @@ DATABASE_URL = os.getenv('DATABASE_URL', '')
 if DATABASE_URL.startswith('postgres://') or DATABASE_URL.startswith('postgresql://'):
     import urllib.parse
     _url = urllib.parse.urlparse(DATABASE_URL)
+    _options = {}
+    _qs = urllib.parse.parse_qs(_url.query)
+    _sslmode = _qs.get('sslmode', [None])[0]
+    if _sslmode:
+        _options['sslmode'] = _sslmode
+    elif not DEBUG and _url.hostname and 'render.com' in _url.hostname:
+        _options['sslmode'] = 'require'
+
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
@@ -118,9 +133,15 @@ if DATABASE_URL.startswith('postgres://') or DATABASE_URL.startswith('postgresql
             'HOST': _url.hostname,
             'PORT': _url.port or 5432,
             'CONN_MAX_AGE': 60,
+            **({'OPTIONS': _options} if _options else {}),
         }
     }
 else:
+    if not DEBUG and not IS_TESTING:
+        raise RuntimeError(
+            "DATABASE_URL must be configured with a PostgreSQL connection string in production (DEBUG=False). "
+            "SQLite is prohibited in production."
+        )
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
@@ -252,3 +273,43 @@ CSRF_COOKIE_SECURE = os.getenv('CSRF_COOKIE_SECURE', 'False').lower() in ('true'
 SECURE_HSTS_SECONDS = int(os.getenv('SECURE_HSTS_SECONDS', '0'))
 SECURE_HSTS_INCLUDE_SUBDOMAINS = os.getenv('SECURE_HSTS_INCLUDE_SUBDOMAINS', 'False').lower() in ('true', '1', 't')
 SECURE_HSTS_PRELOAD = os.getenv('SECURE_HSTS_PRELOAD', 'False').lower() in ('true', '1', 't')
+
+# ---------------------------------------------------------------------------
+# LOGGING
+# ---------------------------------------------------------------------------
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '[{asctime}] {levelname} {name} {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '{levelname} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose' if not DEBUG else 'simple',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'INFO' if not DEBUG else 'DEBUG',
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'django.request': {
+            'handlers': ['console'],
+            'level': 'WARNING' if not DEBUG else 'DEBUG',
+            'propagate': False,
+        },
+    },
+}

@@ -1,8 +1,14 @@
 /// <reference types="vite/client" />
-// In production, set VITE_API_URL to your absolute backend URL, e.g.
-// VITE_API_URL=https://api.cafekhoj.np/api/v1
-// The /api/v1 fallback keeps the Vite dev-server proxy working locally.
-const API_BASE: string = (import.meta.env.VITE_API_URL as string | undefined) || '/api/v1';
+// In production, set VITE_API_URL to your absolute backend URL, e.g.:
+// VITE_API_URL=https://cafekhoj-api.onrender.com/api/v1
+// Automatically normalizes base so both 'https://.../api/v1' and 'https://...' work without duplicate segments.
+const rawApiUrl = (import.meta.env.VITE_API_URL as string | undefined)?.trim();
+function getApiBase(): string {
+  if (!rawApiUrl) return '/api/v1';
+  const clean = rawApiUrl.replace(/\/+$/, '');
+  return clean.endsWith('/api/v1') ? clean : `${clean}/api/v1`;
+}
+const API_BASE: string = getApiBase();
 
 export class ApiError extends Error {
   status: number;
@@ -99,7 +105,8 @@ export const api = {
   createCafe: (data: any) => request<any>('/cafes/create/', { method: 'POST', body: JSON.stringify(data) }),
   updateCafe: (id: number, data: any) => request<any>(`/cafes/${id}/update/`, { method: 'PATCH', body: JSON.stringify(data) }),
 
-  // Metadata
+  // Metadata & System
+  checkHealth: () => request<{ status: string; database: string; service: string }>('/health/'),
   getCategories: () => request<any[]>('/categories/'),
   getFacilities: () => request<any[]>('/facilities/'),
   getLocations: () => request<any[]>('/locations/'),
