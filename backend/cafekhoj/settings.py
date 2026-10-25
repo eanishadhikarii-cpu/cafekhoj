@@ -11,6 +11,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 dotenv.load_dotenv(BASE_DIR / '.env', override=True)
 
 IS_TESTING = 'test' in sys.argv or any('pytest' in arg for arg in sys.argv)
+IS_COLLECTSTATIC = 'collectstatic' in sys.argv
 
 # ---------------------------------------------------------------------------
 # SECURITY
@@ -112,7 +113,16 @@ WSGI_APPLICATION = 'cafekhoj.wsgi.application'
 # DATABASE
 # ---------------------------------------------------------------------------
 
-DATABASE_URL = os.getenv('DATABASE_URL', '')
+# Check primary and fallback database environment variables
+raw_db_url = os.getenv('DATABASE_URL', '').strip()
+if not raw_db_url or raw_db_url.startswith('${{'):
+    for alt_var in ('INTERNAL_DATABASE_URL', 'POSTGRES_URL', 'RENDER_POSTGRES_URL'):
+        candidate = os.getenv(alt_var, '').strip()
+        if candidate and not candidate.startswith('${{'):
+            raw_db_url = candidate
+            break
+
+DATABASE_URL = raw_db_url
 if DATABASE_URL.startswith('postgres://') or DATABASE_URL.startswith('postgresql://'):
     import urllib.parse
     _url = urllib.parse.urlparse(DATABASE_URL)
@@ -136,8 +146,25 @@ if DATABASE_URL.startswith('postgres://') or DATABASE_URL.startswith('postgresql
             **({'OPTIONS': _options} if _options else {}),
         }
     }
+elif IS_COLLECTSTATIC:
+    # During collectstatic (build phase), no database queries are executed.
+    # An ephemeral in-memory sqlite engine allows static assets to compile cleanly.
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': ':memory:',
+        }
+    }
 else:
     if not DEBUG and not IS_TESTING:
+        if DATABASE_URL.startswith('${{'):
+            raise RuntimeError(
+                f"DATABASE_URL is set to unresolved syntax '{DATABASE_URL}'. "
+                "In the Render web dashboard, '${{...}}' syntax is not expanded. "
+                "Please copy the actual 'Internal Database URL' from your Render PostgreSQL dashboard "
+                "(e.g., postgres://cafekhoj_db_user:...@dpg-.../cafekhoj_db) and paste it into "
+                "the DATABASE_URL environment variable on your Render service."
+            )
         raise RuntimeError(
             "DATABASE_URL must be configured with a PostgreSQL connection string in production (DEBUG=False). "
             "SQLite is prohibited in production."
