@@ -135,25 +135,36 @@ This guide details the deployment architecture, configuration steps, and operati
 
 ### 4.2 Database Configuration (Supabase & Render PostgreSQL)
 
-CafeKhoj supports both **Supabase PostgreSQL** and **Render PostgreSQL**. The Django backend automatically detects the provider, enables SSL (`sslmode=require`), and configures connection pooling parameters.
+CafeKhoj supports both **Supabase PostgreSQL** and **Render PostgreSQL**. The Django backend automatically detects the provider, enforces SSL (`sslmode=require`), and configures connection pooling parameters.
 
-#### 4.2.1 Connecting Supabase PostgreSQL (Recommended)
-1. In your **Supabase Dashboard**:
-   * Navigate to **Project Settings** $\rightarrow$ **Database**.
-   * Scroll down to **Connection parameters** / **Connection string**.
-   * Under **URI**, select **Connection Pooler**:
-     * **Mode:** **Session** (Port `5432` - recommended for Django migrations + web queries)
-     * *Or* **Transaction** (Port `6543` - backend automatically detects port `6543`, sets `DISABLE_SERVER_SIDE_CURSORS = True` and `CONN_MAX_AGE = 0`).
-2. Copy the Connection string URI:
-   ```text
-   postgresql://postgres.[PROJECT_REF]:[YOUR-PASSWORD]@aws-0-[REGION].pooler.supabase.com:5432/postgres
-   ```
-   *(Note: Remember to replace `[YOUR-PASSWORD]` with your actual Supabase database password).*
-3. In Render $\rightarrow$ `cafekhoj-api` $\rightarrow$ **Environment**:
-   * Set `DATABASE_URL` = `<PASTE_SUPABASE_URI>`
-4. Click **Save Changes**. Render will automatically redeploy the backend and run `python manage.py migrate` against the Supabase database.
+#### 4.2.1 CafeKhoj Supabase Project Configuration
+* **Project Reference:** `tdjgckzsgkzeieklhwod`
+* **Direct Database Host:** `db.tdjgckzsgkzeieklhwod.supabase.co`
+* **Region:** `ap-south-1`
+* **Supabase Dashboard:** `https://supabase.com/dashboard/project/tdjgckzsgkzeieklhwod`
 
-#### 4.2.2 Connecting Render PostgreSQL (Fallback / Alternate)
+Connection URI Formats:
+* **Session Pooler (Port 5432 - Recommended for Django Web + Migrations):**
+  ```text
+  postgresql://postgres.tdjgckzsgkzeieklhwod:[YOUR-PASSWORD]@aws-0-ap-south-1.pooler.supabase.com:5432/postgres
+  ```
+* **Transaction Pooler (Port 6543):**
+  ```text
+  postgresql://postgres.tdjgckzsgkzeieklhwod:[YOUR-PASSWORD]@aws-0-ap-south-1.pooler.supabase.com:6543/postgres
+  ```
+  *(Note: Port 6543 automatically configures `DISABLE_SERVER_SIDE_CURSORS = True` and `CONN_MAX_AGE = 0`).*
+* **Direct Connection (Port 5432):**
+  ```text
+  postgresql://postgres:[YOUR-PASSWORD]@db.tdjgckzsgkzeieklhwod.supabase.co:5432/postgres
+  ```
+
+#### 4.2.2 Connecting Supabase to Render Backend
+1. Open Render Web Service: `https://dashboard.render.com/web/srv-dbf2fh8ae00c73ehur1g` (`cafekhoj-api`).
+2. Go to the **Environment** tab.
+3. Set `DATABASE_URL` = `<PASTE_SUPABASE_SESSION_POOLER_URI>` (replace `[YOUR-PASSWORD]` with your actual Supabase DB password).
+4. Click **Save Changes**. Render will automatically trigger a deployment.
+
+#### 4.2.3 Connecting Render PostgreSQL (Fallback / Alternate)
 1. Open Render database dashboard: `https://dashboard.render.com/d/dpg-dbf2esgae00c73ehsrj0-a`.
 2. Locate the **Connections** block and copy the **Internal Database URL** (format: `postgres://cafekhoj_db_user:<password>@dpg-dbf2esgae00c73ehsrj0-a/cafekhoj_db`).
 3. In `cafekhoj-api` settings $\rightarrow$ **Environment**, set:
@@ -162,31 +173,59 @@ CafeKhoj supports both **Supabase PostgreSQL** and **Render PostgreSQL**. The Dj
 > [!WARNING]
 > Do NOT type `${{cafekhoj-db.DATABASE_URL}}` into the Render Web Dashboard. Render's dashboard treats `${{...}}` as literal text. You must paste the actual `postgres://...` string.
 
-#### 4.2.3 Database Guardrails & Safety
-* **No SQLite in Production:** In production (`DEBUG=False`), Django refuses to start if `DATABASE_URL` is missing or invalid. During asset compilation (`collectstatic`), an ephemeral in-memory SQLite database compiles static assets safely.
+#### 4.2.4 Database Guardrails & Safety
+* **No SQLite in Production:** In production (`DEBUG=False`), Django strictly refuses to start if `DATABASE_URL` is missing or invalid. During asset compilation (`collectstatic`), an ephemeral in-memory SQLite database compiles static assets safely.
 * **Automatic SSL Enforcement:** When connecting to `*.supabase.co`, `*.supabase.com`, or `*.render.com`, Django automatically injects `sslmode=require`.
+* **Zero Credential Exposure:** Database URLs and passwords are never printed in logs, job summaries, or error messages.
 
-### 4.3 Database Seeding & Administrator Creation
+### 4.3 Production Database Migration (GitHub Actions)
+A secure workflow is provided at `.github/workflows/migrate-production.yml`:
+1. In GitHub repo $\rightarrow$ **Settings** $\rightarrow$ **Secrets and variables** $\rightarrow$ **Actions**:
+   * Add repository secret `DATABASE_URL` with your Supabase Session Pooler connection string.
+2. Go to the **Actions** tab $\rightarrow$ select **Migrate Production Database** $\rightarrow$ **Run workflow**.
+3. Type `MIGRATE_PRODUCTION` in the confirmation input to apply migrations and audit table schema.
+
+### 4.4 Database Seeding & Administrator Creation
 
 #### Option A: GitHub Actions (Recommended — No Shell required)
 A secure manual workflow is provided at `.github/workflows/seed-production.yml`:
-1. In GitHub repo $\rightarrow$ **Settings** $\rightarrow$ **Secrets and variables** $\rightarrow$ **Actions**:
-   * Add repository secret `DATABASE_URL` with your Supabase connection string.
-2. Go to the **Actions** tab $\rightarrow$ **Seed Production Database** $\rightarrow$ **Run workflow**.
+1. Ensure repository secret `DATABASE_URL` is configured in GitHub repository secrets.
+2. Go to the **Actions** tab $\rightarrow$ select **Seed Production Database** $\rightarrow$ **Run workflow**.
 3. Enter `SEED_CAFEKHOJ` in the confirmation input to execute.
+4. The workflow will import 53 verified real Jhapa cafes and run `verify_database` to report the final record counts.
 
 #### Option B: Render Web Shell
 In Render's web **Shell** tab:
 ```bash
 python manage.py createsuperuser
 python manage.py seed_cafekhoj
+python manage.py verify_database
 ```
 
-### 4.4 Rollback Procedure
+### 4.5 Production Database Verification
+Run the read-only audit command at any time in Render Shell or locally against staging:
+```bash
+python manage.py verify_database
+```
+This safely prints:
+* Detected provider (Supabase / Render / Local)
+* Host endpoint and port
+* Server PostgreSQL version
+* Required application tables audit
+* Migration status and pending migration check
+* Record counts for Users, Locations, Cafes, Categories, Facilities, and Reviews
+
+### 4.6 Rollback Procedure
 If you ever need to roll back from Supabase to Render PostgreSQL:
-1. Copy the Render Internal Database URL from `cafekhoj-db`.
-2. Update `DATABASE_URL` in Render `cafekhoj-api` environment variables.
-3. Save changes. Render redeploys and connects back to Render PostgreSQL immediately. Render DB data and schema are preserved.
+1. Open Render Database `cafekhoj-db` connections page and copy the **Internal Database URL**.
+2. Open Render Web Service `cafekhoj-api` $\rightarrow$ **Environment**.
+3. Set `DATABASE_URL` to the Render Internal Database URL.
+4. Click **Save Changes**. Render will redeploy and reconnect to the original Render PostgreSQL database immediately.
+5. No tables or data in either database are deleted or dropped during rollback.
+
+### 4.7 Credential Privacy and Rotation
+* **Never commit passwords or full connection strings to Git.**
+* If your Supabase or Render database password was ever exposed in public logs or chat, rotate it immediately in the Supabase Dashboard under **Project Settings** $\rightarrow$ **Database** $\rightarrow$ **Reset database password**.
 
 ---
 

@@ -123,51 +123,75 @@ if not raw_db_url or raw_db_url.startswith('${{'):
             break
 
 DATABASE_URL = raw_db_url
-if DATABASE_URL.startswith('postgres://') or DATABASE_URL.startswith('postgresql://'):
-    import urllib.parse
-    _url = urllib.parse.urlparse(DATABASE_URL)
-    _options = {}
-    _qs = urllib.parse.parse_qs(_url.query)
-    _sslmode = _qs.get('sslmode', [None])[0]
 
-    # Enforce SSL for managed cloud databases (Supabase, Render, AWS, etc.)
-    _is_cloud_db = bool(_url.hostname and ('supabase.co' in _url.hostname or 'supabase.com' in _url.hostname or 'render.com' in _url.hostname))
-    if _sslmode:
-        _options['sslmode'] = _sslmode
-    elif not DEBUG and _is_cloud_db:
-        _options['sslmode'] = 'require'
 
-    # Supabase / PgBouncer Transaction Pooler optimization (port 6543)
-    # Transaction pooling requires disabling server-side cursors and setting connection max age to 0
-    _is_transaction_pooler = (_url.port == 6543)
+def configure_database(
+    database_url: str,
+    debug: bool,
+    base_dir: Path,
+    is_collectstatic: bool = False,
+    is_testing: bool = False,
+) -> dict:
+    """
+    Safely configure Django database backend with strict production safeguards.
+    Supports Supabase direct, session pooler, transaction pooler, and Render PostgreSQL.
+    Strictly forbids SQLite in production runtime.
+    """
+    url_str = (database_url or '').strip()
 
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.postgresql',
-            'NAME': _url.path.lstrip('/') or 'postgres',
-            'USER': urllib.parse.unquote(_url.username or ''),
-            'PASSWORD': urllib.parse.unquote(_url.password or ''),
-            'HOST': _url.hostname,
-            'PORT': _url.port or 5432,
-            'CONN_MAX_AGE': 0 if _is_transaction_pooler else 60,
-            'DISABLE_SERVER_SIDE_CURSORS': _is_transaction_pooler,
-            **({'OPTIONS': _options} if _options else {}),
+    if url_str.startswith('postgres://') or url_str.startswith('postgresql://'):
+        import urllib.parse
+        _url = urllib.parse.urlparse(url_str)
+        _options = {}
+        _qs = urllib.parse.parse_qs(_url.query)
+        _sslmode = _qs.get('sslmode', [None])[0]
+
+        # Enforce SSL for managed cloud databases (Supabase, Render, AWS, etc.)
+        _is_cloud_db = bool(
+            _url.hostname and (
+                'supabase.co' in _url.hostname
+                or 'supabase.com' in _url.hostname
+                or 'render.com' in _url.hostname
+            )
+        )
+        if _sslmode:
+            _options['sslmode'] = _sslmode
+        elif _is_cloud_db:
+            # Managed cloud databases require SSL regardless of DEBUG status
+            _options['sslmode'] = 'require'
+
+        # Supabase / PgBouncer Transaction Pooler optimization (port 6543)
+        # Transaction pooling requires disabling server-side cursors and setting connection max age to 0
+        _is_transaction_pooler = (_url.port == 6543)
+
+        return {
+            'default': {
+                'ENGINE': 'django.db.backends.postgresql',
+                'NAME': _url.path.lstrip('/') or 'postgres',
+                'USER': urllib.parse.unquote(_url.username or ''),
+                'PASSWORD': urllib.parse.unquote(_url.password or ''),
+                'HOST': _url.hostname,
+                'PORT': _url.port or 5432,
+                'CONN_MAX_AGE': 0 if _is_transaction_pooler else 60,
+                'DISABLE_SERVER_SIDE_CURSORS': _is_transaction_pooler,
+                **({'OPTIONS': _options} if _options else {}),
+            }
         }
-    }
-elif IS_COLLECTSTATIC:
-    # During collectstatic (build phase), no database queries are executed.
-    # An ephemeral in-memory sqlite engine allows static assets to compile cleanly.
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': ':memory:',
+
+    if is_collectstatic:
+        # During collectstatic (build phase), no database queries are executed.
+        # An ephemeral in-memory sqlite engine allows static assets to compile cleanly.
+        return {
+            'default': {
+                'ENGINE': 'django.db.backends.sqlite3',
+                'NAME': ':memory:',
+            }
         }
-    }
-else:
-    if not DEBUG and not IS_TESTING:
-        if DATABASE_URL.startswith('${{'):
+
+    if not debug and not is_testing:
+        if url_str.startswith('${{'):
             raise RuntimeError(
-                f"DATABASE_URL is set to unresolved syntax '{DATABASE_URL}'. "
+                f"DATABASE_URL is set to unresolved syntax '{url_str}'. "
                 "In the Render web dashboard, '${{...}}' syntax is not expanded. "
                 "Please copy the actual PostgreSQL connection string from Supabase (or Render) and paste it into "
                 "the DATABASE_URL environment variable on your Render service."
@@ -176,12 +200,22 @@ else:
             "DATABASE_URL must be configured with a PostgreSQL connection string in production (DEBUG=False). "
             "SQLite is prohibited in production."
         )
-    DATABASES = {
+
+    return {
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'db.sqlite3',
+            'NAME': base_dir / 'db.sqlite3',
         }
     }
+
+
+DATABASES = configure_database(
+    database_url=DATABASE_URL,
+    debug=DEBUG,
+    base_dir=BASE_DIR,
+    is_collectstatic=IS_COLLECTSTATIC,
+    is_testing=IS_TESTING,
+)
 
 AUTH_USER_MODEL = 'core.User'
 

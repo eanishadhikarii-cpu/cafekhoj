@@ -45,6 +45,7 @@ jobs:
           DEBUG: "False"
           DJANGO_SETTINGS_MODULE: "cafekhoj.settings"
           SECRET_KEY: ${{ secrets.SECRET_KEY || 'production-seed-runner-guard-key-cafekhoj-2026' }}
+          ALLOWED_HOSTS: "localhost,127.0.0.1,testserver,cafekhoj-api.onrender.com"
         run: |
           if [ -z "$DATABASE_URL" ]; then
             echo "::error::DATABASE_URL secret is not set in GitHub repository secrets."
@@ -52,3 +53,14 @@ jobs:
           fi
           echo "Executing idempotent seed_cafekhoj command against production database..."
           python manage.py seed_cafekhoj
+
+      - name: Verify Seeded Records and Database State
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DEBUG: "False"
+          DJANGO_SETTINGS_MODULE: "cafekhoj.settings"
+          SECRET_KEY: ${{ secrets.SECRET_KEY || 'production-seed-runner-guard-key-cafekhoj-2026' }}
+          ALLOWED_HOSTS: "localhost,127.0.0.1,testserver,cafekhoj-api.onrender.com"
+        run: |
+          python manage.py verify_database
