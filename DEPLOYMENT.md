@@ -5,7 +5,7 @@ This guide details the deployment architecture, configuration steps, and operati
 * **Repository:** `https://github.com/eanishadhikarii-cpu/cafekhoj`
 * **Frontend:** React + TypeScript + Vite (Hosted on **Vercel**)
 * **Backend:** Django 6.0 + Django REST Framework + Gunicorn + WhiteNoise (Hosted on **Render**)
-* **Database:** Managed PostgreSQL (Hosted on **Render**)
+* **Database:** Managed PostgreSQL (Hosted on **Supabase** or **Render**)
 
 ---
 
@@ -133,27 +133,60 @@ This guide details the deployment architecture, configuration steps, and operati
   ```
   *(Alias `/api/v1/health/` and `/health/` are also active. Returns HTTP 200 with database health status).*
 
-### 4.2 Connecting Render PostgreSQL
-1. Open database dashboard: `https://dashboard.render.com/d/dpg-dbf2esgae00c73ehsrj0-a`.
+### 4.2 Database Configuration (Supabase & Render PostgreSQL)
+
+CafeKhoj supports both **Supabase PostgreSQL** and **Render PostgreSQL**. The Django backend automatically detects the provider, enables SSL (`sslmode=require`), and configures connection pooling parameters.
+
+#### 4.2.1 Connecting Supabase PostgreSQL (Recommended)
+1. In your **Supabase Dashboard**:
+   * Navigate to **Project Settings** $\rightarrow$ **Database**.
+   * Scroll down to **Connection parameters** / **Connection string**.
+   * Under **URI**, select **Connection Pooler**:
+     * **Mode:** **Session** (Port `5432` - recommended for Django migrations + web queries)
+     * *Or* **Transaction** (Port `6543` - backend automatically detects port `6543`, sets `DISABLE_SERVER_SIDE_CURSORS = True` and `CONN_MAX_AGE = 0`).
+2. Copy the Connection string URI:
+   ```text
+   postgresql://postgres.[PROJECT_REF]:[YOUR-PASSWORD]@aws-0-[REGION].pooler.supabase.com:5432/postgres
+   ```
+   *(Note: Remember to replace `[YOUR-PASSWORD]` with your actual Supabase database password).*
+3. In Render $\rightarrow$ `cafekhoj-api` $\rightarrow$ **Environment**:
+   * Set `DATABASE_URL` = `<PASTE_SUPABASE_URI>`
+4. Click **Save Changes**. Render will automatically redeploy the backend and run `python manage.py migrate` against the Supabase database.
+
+#### 4.2.2 Connecting Render PostgreSQL (Fallback / Alternate)
+1. Open Render database dashboard: `https://dashboard.render.com/d/dpg-dbf2esgae00c73ehsrj0-a`.
 2. Locate the **Connections** block and copy the **Internal Database URL** (format: `postgres://cafekhoj_db_user:<password>@dpg-dbf2esgae00c73ehsrj0-a/cafekhoj_db`).
 3. In `cafekhoj-api` settings $\rightarrow$ **Environment**, set:
    * `DATABASE_URL` = `<PASTE_INTERNAL_DATABASE_URL>`
 
 > [!WARNING]
-> Do NOT type `${{cafekhoj-db.DATABASE_URL}}` into the Render Web Dashboard. Render's dashboard treats `${{...}}` as literal text. You must paste the actual `postgres://...` string copied from your database connections page.
+> Do NOT type `${{cafekhoj-db.DATABASE_URL}}` into the Render Web Dashboard. Render's dashboard treats `${{...}}` as literal text. You must paste the actual `postgres://...` string.
 
-4. The backend automatically switches to PostgreSQL via `psycopg2`, safely unquotes credentials, and establishes pooled connections (`CONN_MAX_AGE=60`).
-5. **No SQLite Fallback:** In production (`DEBUG=False`), Django will refuse to start if `DATABASE_URL` is missing or invalid, preventing silent fallback. During the build asset phase (`collectstatic`), in-memory SQLite compiles static assets safely.
+#### 4.2.3 Database Guardrails & Safety
+* **No SQLite in Production:** In production (`DEBUG=False`), Django refuses to start if `DATABASE_URL` is missing or invalid. During asset compilation (`collectstatic`), an ephemeral in-memory SQLite database compiles static assets safely.
+* **Automatic SSL Enforcement:** When connecting to `*.supabase.co`, `*.supabase.com`, or `*.render.com`, Django automatically injects `sslmode=require`.
 
 ### 4.3 Database Seeding & Administrator Creation
+
+#### Option A: GitHub Actions (Recommended — No Shell required)
+A secure manual workflow is provided at `.github/workflows/seed-production.yml`:
+1. In GitHub repo $\rightarrow$ **Settings** $\rightarrow$ **Secrets and variables** $\rightarrow$ **Actions**:
+   * Add repository secret `DATABASE_URL` with your Supabase connection string.
+2. Go to the **Actions** tab $\rightarrow$ **Seed Production Database** $\rightarrow$ **Run workflow**.
+3. Enter `SEED_CAFEKHOJ` in the confirmation input to execute.
+
+#### Option B: Render Web Shell
 In Render's web **Shell** tab:
 ```bash
 python manage.py createsuperuser
-```
-To import the real Jhapa café dataset:
-```bash
 python manage.py seed_cafekhoj
 ```
+
+### 4.4 Rollback Procedure
+If you ever need to roll back from Supabase to Render PostgreSQL:
+1. Copy the Render Internal Database URL from `cafekhoj-db`.
+2. Update `DATABASE_URL` in Render `cafekhoj-api` environment variables.
+3. Save changes. Render redeploys and connects back to Render PostgreSQL immediately. Render DB data and schema are preserved.
 
 ---
 

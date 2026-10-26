@@ -129,20 +129,28 @@ if DATABASE_URL.startswith('postgres://') or DATABASE_URL.startswith('postgresql
     _options = {}
     _qs = urllib.parse.parse_qs(_url.query)
     _sslmode = _qs.get('sslmode', [None])[0]
+
+    # Enforce SSL for managed cloud databases (Supabase, Render, AWS, etc.)
+    _is_cloud_db = bool(_url.hostname and ('supabase.co' in _url.hostname or 'supabase.com' in _url.hostname or 'render.com' in _url.hostname))
     if _sslmode:
         _options['sslmode'] = _sslmode
-    elif not DEBUG and _url.hostname and 'render.com' in _url.hostname:
+    elif not DEBUG and _is_cloud_db:
         _options['sslmode'] = 'require'
+
+    # Supabase / PgBouncer Transaction Pooler optimization (port 6543)
+    # Transaction pooling requires disabling server-side cursors and setting connection max age to 0
+    _is_transaction_pooler = (_url.port == 6543)
 
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
-            'NAME': _url.path.lstrip('/'),
+            'NAME': _url.path.lstrip('/') or 'postgres',
             'USER': urllib.parse.unquote(_url.username or ''),
             'PASSWORD': urllib.parse.unquote(_url.password or ''),
             'HOST': _url.hostname,
             'PORT': _url.port or 5432,
-            'CONN_MAX_AGE': 60,
+            'CONN_MAX_AGE': 0 if _is_transaction_pooler else 60,
+            'DISABLE_SERVER_SIDE_CURSORS': _is_transaction_pooler,
             **({'OPTIONS': _options} if _options else {}),
         }
     }
@@ -161,8 +169,7 @@ else:
             raise RuntimeError(
                 f"DATABASE_URL is set to unresolved syntax '{DATABASE_URL}'. "
                 "In the Render web dashboard, '${{...}}' syntax is not expanded. "
-                "Please copy the actual 'Internal Database URL' from your Render PostgreSQL dashboard "
-                "(e.g., postgres://cafekhoj_db_user:...@dpg-.../cafekhoj_db) and paste it into "
+                "Please copy the actual PostgreSQL connection string from Supabase (or Render) and paste it into "
                 "the DATABASE_URL environment variable on your Render service."
             )
         raise RuntimeError(
