@@ -1,6 +1,9 @@
 from rest_framework import serializers
-from .models import Category, Facility, Cafe, CafeFacility, CafePhoto, OpeningHour, MenuCategory, MenuItem
-from core.serializers import LocationSerializer
+from .models import (
+    Category, Facility, Cafe, CafeFacility, CafePhoto, OpeningHour,
+    MenuCategory, MenuItem, CafeChangeRequest
+)
+from core.serializers import LocationSerializer, UserSerializer
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -62,6 +65,8 @@ class CafeListSerializer(serializers.ModelSerializer):
             'id', 'name', 'slug', 'tagline', 'description', 'address', 'location',
             'latitude', 'longitude', 'phone', 'price_range', 'cover_image_url',
             'average_rating', 'review_count', 'verification_status', 'publication_status',
+            'google_place_id', 'google_rating', 'google_user_ratings_total', 'google_maps_url',
+            'google_sync_status',
             'categories', 'facilities', 'is_sample_data', 'is_favourited', 'distance_km',
             'created_at'
         ]
@@ -84,6 +89,9 @@ class CafeDetailSerializer(serializers.ModelSerializer):
             'latitude', 'longitude', 'phone', 'email', 'website',
             'social_instagram', 'social_facebook', 'price_range',
             'verification_status', 'publication_status', 'cover_image_url',
+            'google_place_id', 'google_rating', 'google_user_ratings_total',
+            'google_maps_url', 'google_sync_status', 'google_last_synced_at',
+            'admin_notes', 'rejection_reason',
             'average_rating', 'review_count', 'is_sample_data', 'source',
             'last_verified_at', 'categories', 'facilities', 'photos',
             'opening_hours', 'menu_categories', 'is_favourited', 'claimed_by_current_user',
@@ -106,6 +114,39 @@ class CafeWriteSerializer(serializers.ModelSerializer):
             'latitude', 'longitude', 'phone', 'email', 'website',
             'social_instagram', 'social_facebook', 'price_range',
             'cover_image_url', 'category_ids', 'facility_ids',
+            'google_place_id',
+            'google_rating', 'google_user_ratings_total', 'google_maps_url', 'google_sync_status',
             'verification_status', 'publication_status', 'is_sample_data'
         ]
+        read_only_fields = [
+            'google_rating', 'google_user_ratings_total', 'google_maps_url',
+            'google_sync_status', 'google_last_synced_at'
+        ]
 
+    def validate(self, attrs):
+        request = self.context.get('request')
+        is_admin = request and request.user and request.user.is_platform_admin()
+
+        # Non-admins cannot alter publication_status or verification_status directly
+        if not is_admin:
+            if 'verification_status' in attrs:
+                attrs.pop('verification_status')
+            if 'publication_status' in attrs:
+                attrs.pop('publication_status')
+            if 'is_sample_data' in attrs:
+                attrs.pop('is_sample_data')
+        return attrs
+
+
+class CafeChangeRequestSerializer(serializers.ModelSerializer):
+    requested_by = UserSerializer(read_only=True)
+    reviewed_by = UserSerializer(read_only=True)
+    cafe_name = serializers.CharField(source='cafe.name', read_only=True)
+
+    class Meta:
+        model = CafeChangeRequest
+        fields = [
+            'id', 'cafe', 'cafe_name', 'requested_by', 'proposed_changes',
+            'status', 'reviewed_by', 'reviewed_at', 'admin_notes', 'created_at'
+        ]
+        read_only_fields = ['status', 'reviewed_by', 'reviewed_at', 'admin_notes', 'created_at']

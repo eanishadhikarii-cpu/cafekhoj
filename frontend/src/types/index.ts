@@ -1,4 +1,4 @@
-export type UserRole = 'customer' | 'business' | 'admin';
+export type UserRole = 'customer' | 'operator' | 'business' | 'admin';
 
 export interface User {
   id: number;
@@ -7,6 +7,7 @@ export interface User {
   first_name: string;
   last_name: string;
   role: UserRole;
+  operator_relationship?: 'owner' | 'manager' | 'staff' | null;
   phone?: string;
   avatar_url?: string;
   bio?: string;
@@ -102,11 +103,19 @@ export interface Cafe {
   social_instagram?: string;
   social_facebook?: string;
   price_range: 'budget' | 'moderate' | 'premium';
-  verification_status: 'unverified' | 'pending' | 'verified' | 'temp_closed' | 'permanently_closed' | 'archived';
-  publication_status: 'draft' | 'published' | 'archived';
+  verification_status: 'unverified' | 'pending' | 'pending_verification' | 'verified' | 'verification_rejected' | 'temp_closed' | 'permanently_closed' | 'archived';
+  publication_status: 'draft' | 'pending_review' | 'approved' | 'published' | 'rejected' | 'suspended' | 'archived';
   cover_image_url?: string;
   average_rating: number | string;
   review_count: number;
+  google_place_id?: string | null;
+  google_rating?: number | string | null;
+  google_user_ratings_total?: number | null;
+  google_maps_url?: string;
+  google_sync_status?: string;
+  google_last_synced_at?: string | null;
+  admin_notes?: string;
+  rejection_reason?: string;
   is_sample_data: boolean;
   source?: string;
   last_verified_at?: string;
@@ -163,6 +172,54 @@ export interface BusinessClaim {
   created_at: string;
 }
 
+export interface DeviceSession {
+  id: number;
+  device_id: string;
+  device_name: string;
+  ip_address?: string;
+  is_active: boolean;
+  is_current_device?: boolean;
+  authorized_at: string;
+  last_active_at: string;
+}
+
+export interface DeviceAuthorizationRequest {
+  id: number;
+  username: string;
+  user_email: string;
+  device_id: string;
+  device_name: string;
+  ip_address?: string;
+  user_agent?: string;
+  status: 'pending' | 'approved' | 'rejected';
+  reviewed_by_username?: string;
+  reviewed_at?: string;
+  admin_notes?: string;
+  created_at: string;
+}
+
+export interface PlatformAdministrator {
+  id: number;
+  username: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+  is_primary: boolean;
+  notes?: string;
+  created_at: string;
+}
+
+export interface AdminNotification {
+  id: number;
+  title: string;
+  message: string;
+  severity: 'info' | 'warning' | 'critical';
+  notification_type: string;
+  link?: string;
+  is_read: boolean;
+  created_at: string;
+}
+
 export interface SubscriptionPlan {
   id: number;
   name: string;
@@ -191,4 +248,3 @@ export interface Promotion {
   click_count: number;
   created_at: string;
 }
-

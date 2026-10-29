@@ -37,8 +37,9 @@ class BusinessClaim(models.Model):
 
 class BusinessMembership(models.Model):
     ROLE_CHOICES = (
-        ('owner', 'Business Owner'),
+        ('owner', 'Owner / Founder'),
         ('manager', 'Cafe Manager'),
+        ('staff', 'Staff Member'),
     )
 
     cafe = models.ForeignKey(Cafe, on_delete=models.CASCADE, related_name='memberships')

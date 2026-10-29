@@ -300,3 +300,56 @@ After Vercel provides your frontend domain:
 3. **Database Guardrail:** SQLite is strictly prevented in production mode (`DEBUG=False`), ensuring data is never accidentally written to temporary container storage.
 4. **HTTPS Enforcement:** `SECURE_SSL_REDIRECT=True` and `SECURE_HSTS_SECONDS=31536000` ensure all web and API traffic is encrypted.
 
+
+
+---
+
+## 10. Production Upgrade Operations (CafeKhoj Production Release)
+
+### 10.1 Service Discovery and Health Endpoints
+The following endpoints are permanently available without authentication:
+* `GET /`: Returns HTTP 200 JSON with service name, project context, and API discovery links. Resolves root 404 warnings on Render/load balancers.
+* `GET /api/v1` and `GET /api/v1/`: Returns HTTP 200 JSON with API v1 directory and endpoint listings. Resolves `/api/v1` 404 warnings.
+* `GET /healthz/` and `GET /health/`: Verifies active PostgreSQL connection without issuing database writes.
+
+### 10.2 Primary Platform Administrator Bootstrap
+CafeKhoj strictly limits platform administrators to a maximum of **2 accounts** (1 primary project owner initially, with an audited delegation workflow for a 2nd administrator).
+To establish the initial primary platform owner safely:
+
+1. In Render dashboard (or locally against production `DATABASE_URL`):
+   Set the following environment variables:
+   * `ADMIN_BOOTSTRAP_EMAIL`: Your primary admin email (e.g. `owner@cafekhoj.np`)
+   * `ADMIN_BOOTSTRAP_USERNAME`: Admin username
+   * `ADMIN_BOOTSTRAP_PASSWORD`: Strong password (min 12 characters)
+2. Run the idempotent bootstrap command:
+   ```bash
+   python manage.py bootstrap_admin
+   ```
+   Or pass arguments explicitly:
+   ```bash
+   python manage.py bootstrap_admin --email="owner@cafekhoj.np" --username="admin" --password="<STRONG_PASSWORD>"
+   ```
+3. Once bootstrapped, remove `ADMIN_BOOTSTRAP_PASSWORD` from environment variables.
+
+### 10.3 Operator 1-Device Authorization Policy
+To protect merchant listings, cafe operator accounts are limited to **1 active authorized device session**.
+* When an operator attempts to sign in from an unrecognized browser/device, login is blocked with HTTP 403 `device_authorization_required`. No JWT access/refresh tokens are issued.
+* An authorization request is created in the database and an alert appears in the **Admin Dashboard $\rightarrow$ Device Authorizations**.
+* Once the platform administrator clicks **Authorize Device**, the operator's previous device session is revoked, and the new device is activated.
+
+### 10.4 Email OTP Verification Setup
+Email verification uses single-use, 6-digit cryptographic OTPs with a 5-minute expiry.
+* In local development (`DEBUG=True`), OTP emails are output directly to the terminal console.
+* For live email dispatch, configure standard SMTP in the Render dashboard:
+  * `EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend`
+  * `EMAIL_HOST=smtp.gmail.com`
+  * `EMAIL_PORT=587`
+  * `EMAIL_USE_TLS=True`
+  * `EMAIL_HOST_USER=<your_gmail_address>`
+  * `EMAIL_HOST_PASSWORD=<your_google_app_password>`
+  * `DEFAULT_FROM_EMAIL=CafeKhoj Registration <registration@cafekhoj.np>`
+
+### 10.5 Google Places API Rating Synchronization
+Cafe listings display authentic Google Maps ratings (`google_rating`, `google_user_ratings_total`, `google_maps_url`). Operators and admins cannot manually edit or fabricate these numbers.
+* To enable live synchronization, configure `GOOGLE_PLACES_API_KEY` in Render environment variables.
+* If unconfigured or external API is temporarily unreachable, the frontend gracefully displays **"Rating unavailable"** without throwing errors or breaking cafe page rendering.

@@ -2,10 +2,12 @@ from django.urls import path
 from .views import (
     CafeListView, CafeDetailView, CafeNearbyView, CafeCreateView, CafeUpdateView,
     CategoryListView, FacilityListView, MenuItemListCreateView, MenuItemDetailView,
-    GlobalSearchView
+    GlobalSearchView, AdminCafeListView, AdminCafeReviewView, AdminCafeSyncGoogleView,
+    CafeChangeRequestListCreateView, CafeChangeRequestReviewView
 )
 
 urlpatterns = [
+    # Public & Operator Cafe endpoints
     path('cafes/', CafeListView.as_view(), name='cafe-list'),
     path('cafes/create/', CafeCreateView.as_view(), name='cafe-create'),
     path('cafes/nearby/', CafeNearbyView.as_view(), name='cafe-nearby'),
@@ -16,5 +18,13 @@ urlpatterns = [
     path('menu-items/', MenuItemListCreateView.as_view(), name='menu-item-list-create'),
     path('menu-items/<int:pk>/', MenuItemDetailView.as_view(), name='menu-item-detail'),
     path('search/', GlobalSearchView.as_view(), name='global-search'),
-]
 
+    # Change Requests Workflow
+    path('cafe-change-requests/', CafeChangeRequestListCreateView.as_view(), name='cafe-change-requests'),
+    path('cafe-change-requests/<int:pk>/review/', CafeChangeRequestReviewView.as_view(), name='cafe-change-request-review'),
+
+    # Admin Moderation & Google Places Endpoints
+    path('admin-api/cafes/', AdminCafeListView.as_view(), name='admin-cafe-list'),
+    path('admin-api/cafes/<int:pk>/review/', AdminCafeReviewView.as_view(), name='admin-cafe-review'),
+    path('admin-api/cafes/<int:pk>/sync-google/', AdminCafeSyncGoogleView.as_view(), name='admin-cafe-sync-google'),
+]

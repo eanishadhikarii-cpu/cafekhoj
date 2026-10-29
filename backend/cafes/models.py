@@ -50,8 +50,9 @@ class Cafe(models.Model):
 
     VERIFICATION_STATUS_CHOICES = (
         ('unverified', 'Unverified'),
-        ('pending', 'Pending Verification'),
+        ('pending_verification', 'Pending Verification'),
         ('verified', 'Verified'),
+        ('verification_rejected', 'Verification Rejected'),
         ('temp_closed', 'Temporarily Closed'),
         ('permanently_closed', 'Permanently Closed'),
         ('archived', 'Archived'),
@@ -59,7 +60,11 @@ class Cafe(models.Model):
 
     PUBLICATION_STATUS_CHOICES = (
         ('draft', 'Draft'),
+        ('pending_review', 'Pending Review'),
+        ('approved', 'Approved'),
         ('published', 'Published'),
+        ('rejected', 'Rejected'),
+        ('suspended', 'Suspended'),
         ('archived', 'Archived'),
     )
 
@@ -80,7 +85,7 @@ class Cafe(models.Model):
     
     price_range = models.CharField(max_length=20, choices=PRICE_CHOICES, default='moderate')
     verification_status = models.CharField(
-        max_length=30, choices=VERIFICATION_STATUS_CHOICES, default='verified'
+        max_length=30, choices=VERIFICATION_STATUS_CHOICES, default='unverified'
     )
     publication_status = models.CharField(
         max_length=20, choices=PUBLICATION_STATUS_CHOICES, default='published'
@@ -91,6 +96,21 @@ class Cafe(models.Model):
     
     cover_image_url = models.URLField(max_length=500, blank=True)
     
+    # Official Google Places & Maps integration (Operators/Admins cannot forge official Google data)
+    google_place_id = models.CharField(max_length=255, blank=True, null=True, db_index=True)
+    google_rating = models.DecimalField(max_digits=3, decimal_places=2, null=True, blank=True)
+    google_user_ratings_total = models.PositiveIntegerField(null=True, blank=True)
+    google_maps_url = models.URLField(max_length=500, blank=True)
+    google_sync_status = models.CharField(max_length=30, default='not_synced')
+    google_last_synced_at = models.DateTimeField(null=True, blank=True)
+
+    # Moderation & Onboarding
+    admin_notes = models.TextField(blank=True)
+    rejection_reason = models.TextField(blank=True)
+    submitted_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name='submitted_cafes'
+    )
+
     # Cached aggregates (recalculated securely from published reviews)
     average_rating = models.DecimalField(max_digits=3, decimal_places=2, default=0.00)
     review_count = models.PositiveIntegerField(default=0)
@@ -173,6 +193,31 @@ class CafePhoto(models.Model):
 
     def __str__(self):
         return f"Photo for {self.cafe.name} ({self.caption or 'Untitled'})"
+
+
+class CafeChangeRequest(models.Model):
+    STATUS_CHOICES = (
+        ('pending', 'Pending Approval'),
+        ('approved', 'Approved'),
+        ('rejected', 'Rejected'),
+    )
+
+    cafe = models.ForeignKey(Cafe, on_delete=models.CASCADE, related_name='change_requests')
+    requested_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='cafe_change_requests')
+    proposed_changes = models.JSONField(default=dict)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    reviewed_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name='reviewed_cafe_changes'
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    admin_notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Change Request for {self.cafe.name} ({self.get_status_display()})"
 
 
 class OpeningHour(models.Model):

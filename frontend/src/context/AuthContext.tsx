@@ -6,8 +6,8 @@ interface AuthContextType {
   user: User | null;
   token: string | null;
   isLoading: boolean;
-  login: (username: string, password: string) => Promise<void>;
-  register: (data: any) => Promise<void>;
+  login: (username: string, password: string) => Promise<any>;
+  register: (data: any) => Promise<any>;
   logout: () => void;
   updateUser: (updatedUser: Partial<User>) => Promise<void>;
   isAdmin: boolean;
@@ -43,20 +43,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (username: string, password: string) => {
     const res = await api.login({ username, password });
-    localStorage.setItem('cafekhoj_access_token', res.access);
-    localStorage.setItem('cafekhoj_refresh_token', res.refresh);
-    localStorage.setItem('cafekhoj_user', JSON.stringify(res.user));
-    setToken(res.access);
-    setUser(res.user);
+    if (res.access) {
+      localStorage.setItem('cafekhoj_access_token', res.access);
+      localStorage.setItem('cafekhoj_refresh_token', res.refresh);
+      localStorage.setItem('cafekhoj_user', JSON.stringify(res.user));
+      setToken(res.access);
+      setUser(res.user);
+    }
+    return res;
   };
 
   const register = async (data: any) => {
     const res = await api.register(data);
-    localStorage.setItem('cafekhoj_access_token', res.access);
-    localStorage.setItem('cafekhoj_refresh_token', res.refresh);
-    localStorage.setItem('cafekhoj_user', JSON.stringify(res.user));
-    setToken(res.access);
-    setUser(res.user);
+    if (res.access) {
+      localStorage.setItem('cafekhoj_access_token', res.access);
+      localStorage.setItem('cafekhoj_refresh_token', res.refresh);
+      localStorage.setItem('cafekhoj_user', JSON.stringify(res.user));
+      setToken(res.access);
+      setUser(res.user);
+    }
+    return res;
   };
 
   const logout = () => {
@@ -74,7 +80,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const isAdmin = user?.role === 'admin';
-  const isBusiness = user?.role === 'business' || isAdmin;
+  const isBusiness = user?.role === 'business' || user?.role === 'operator' || isAdmin;
 
   return (
     <AuthContext.Provider value={{ user, token, isLoading, login, register, logout, updateUser, isAdmin, isBusiness }}>
@@ -88,4 +94,3 @@ export const useAuth = () => {
   if (!context) throw new Error('useAuth must be used within an AuthProvider');
   return context;
 };
-

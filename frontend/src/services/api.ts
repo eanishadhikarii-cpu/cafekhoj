@@ -10,6 +10,15 @@ function getApiBase(): string {
 }
 const API_BASE: string = getApiBase();
 
+function getOrCreateDeviceId(): string {
+  let devId = localStorage.getItem('cafekhoj_device_id');
+  if (!devId) {
+    devId = 'dev_' + Math.random().toString(36).substring(2, 12) + '_' + Date.now();
+    localStorage.setItem('cafekhoj_device_id', devId);
+  }
+  return devId;
+}
+
 export class ApiError extends Error {
   status: number;
   data: any;
@@ -25,6 +34,8 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   const url = `${API_BASE}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    'X-Device-Id': getOrCreateDeviceId(),
+    'X-Device-Name': navigator?.userAgent ? navigator.userAgent.substring(0, 80) : 'Web Client',
     ...(options.headers as Record<string, string>),
   };
 
@@ -82,11 +93,17 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 }
 
 export const api = {
-  // Auth
+  // Auth & OTP
   login: (data: any) => request<any>('/auth/login/', { method: 'POST', body: JSON.stringify(data) }),
   register: (data: any) => request<any>('/auth/register/', { method: 'POST', body: JSON.stringify(data) }),
+  verifyOTP: (email: string, code: string) => request<any>('/auth/verify-otp/', { method: 'POST', body: JSON.stringify({ email, code }) }),
+  resendOTP: (email: string) => request<any>('/auth/resend-otp/', { method: 'POST', body: JSON.stringify({ email }) }),
   getMe: () => request<any>('/auth/me/'),
   updateMe: (data: any) => request<any>('/auth/me/', { method: 'PATCH', body: JSON.stringify(data) }),
+
+  // Operator Device Sessions
+  getOperatorDevices: () => request<any[]>('/auth/devices/'),
+  deauthorizeDevice: (id: number) => request<any>(`/auth/devices/${id}/deauthorize/`, { method: 'POST' }),
 
   // Cafes
   getCafes: (params?: Record<string, string | number | boolean | undefined>) => {
@@ -132,7 +149,7 @@ export const api = {
   getUserFavourites: () => request<any>('/me/favourites/'),
   getUserReviews: () => request<any>('/me/reviews/'),
 
-  // Business
+  // Business Claims & Subscriptions
   submitClaim: (data: any) => request<any>('/business-claims/', { method: 'POST', body: JSON.stringify(data) }),
   getUserClaims: () => request<any>('/business-claims/'),
   getBusinessDashboard: () => request<any>('/business/dashboard/'),
@@ -149,7 +166,7 @@ export const api = {
   updateMenuItem: (id: number, data: any) => request<any>(`/menu-items/${id}/`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteMenuItem: (id: number) => request<void>(`/menu-items/${id}/`, { method: 'DELETE' }),
 
-  // Admin
+  // Admin Portal Endpoints
   getAdminDashboard: () => request<any>('/admin-api/dashboard/'),
   getAdminReports: () => request<any>('/admin-api/reports/'),
   resolveAdminReport: (id: number, status: string) =>
@@ -163,6 +180,40 @@ export const api = {
     request<any>(`/admin-api/reviews/${id}/moderate/`, {
       method: 'POST',
       body: JSON.stringify({ moderation_status }),
+    }),
+  getAdminCafes: (params?: Record<string, string>) => {
+    const q = new URLSearchParams(params).toString();
+    return request<any>(`/admin-api/cafes/${q ? `?${q}` : ''}`);
+  },
+  reviewAdminCafe: (id: number, action: string, admin_notes = '', rejection_reason = '') =>
+    request<any>(`/admin-api/cafes/${id}/review/`, {
+      method: 'POST',
+      body: JSON.stringify({ action, admin_notes, rejection_reason }),
+    }),
+  syncAdminCafeGoogle: (id: number, google_place_id?: string) =>
+    request<any>(`/admin-api/cafes/${id}/sync-google/`, {
+      method: 'POST',
+      body: JSON.stringify({ google_place_id }),
+    }),
+  getAdminDeviceRequests: (status?: string) =>
+    request<any[]>(`/admin-api/devices/${status ? `?status=${status}` : ''}`),
+  reviewAdminDeviceRequest: (id: number, decision: 'approve' | 'reject', admin_notes = '') =>
+    request<any>(`/admin-api/devices/${id}/review/`, {
+      method: 'POST',
+      body: JSON.stringify({ decision, admin_notes }),
+    }),
+  getAdminNotifications: (is_read?: boolean) =>
+    request<any[]>(`/admin-api/notifications/${is_read !== undefined ? `?is_read=${is_read}` : ''}`),
+  markAdminNotificationRead: (id: number) =>
+    request<any>(`/admin-api/notifications/${id}/read/`, { method: 'POST' }),
+  markAllAdminNotificationsRead: () =>
+    request<any>('/admin-api/notifications/read-all/', { method: 'POST' }),
+  getPlatformAdministrators: () =>
+    request<any[]>('/admin-api/administrators/'),
+  delegatePlatformAdministrator: (data: { email: string; full_name?: string; notes?: string }) =>
+    request<any>('/admin-api/administrators/delegate/', {
+      method: 'POST',
+      body: JSON.stringify(data),
     }),
   importCafesCSV: (formData: FormData) => {
     const token = localStorage.getItem('cafekhoj_access_token');
@@ -200,4 +251,3 @@ export const api = {
     }).catch(() => {}); // silent fail for telemetry
   },
 };
-

@@ -138,3 +138,4 @@ class Command(BaseCommand):
         self.stdout.write("-" * 65)
 
         self.stdout.write(self.style.SUCCESS("VERIFIED: Active database is healthy, migrated, and operational."))
+

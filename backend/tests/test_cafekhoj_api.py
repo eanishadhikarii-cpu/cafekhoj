@@ -50,6 +50,9 @@ class CafeKhojAPITests(TestCase):
 
     def test_user_registration_and_login(self):
         """Tests user registration and token generation."""
+        import re
+        from django.core import mail
+
         reg_res = self.client.post(reverse('auth-register'), {
             'username': 'newuser101',
             'email': 'newuser101@example.com',
@@ -59,8 +62,22 @@ class CafeKhojAPITests(TestCase):
             'role': 'customer'
         })
         self.assertEqual(reg_res.status_code, status.HTTP_201_CREATED)
-        self.assertIn('access', reg_res.data)
+        self.assertTrue(reg_res.data.get('requires_verification'))
         self.assertIn('user', reg_res.data)
+
+        # Retrieve OTP generated during registration from dispatched email
+        self.assertGreaterEqual(len(mail.outbox), 1)
+        match = re.search(r'\b\d{6}\b', mail.outbox[-1].body)
+        self.assertIsNotNone(match)
+        otp_code = match.group(0)
+
+        # Verify OTP
+        verify_res = self.client.post(reverse('auth-verify-otp'), {
+            'email': 'newuser101@example.com',
+            'code': otp_code
+        })
+        self.assertEqual(verify_res.status_code, status.HTTP_200_OK)
+        self.assertTrue(verify_res.data.get('verified'))
 
         # Login
         login_res = self.client.post(reverse('auth-login'), {

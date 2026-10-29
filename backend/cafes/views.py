@@ -4,19 +4,26 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from django.db.models import Q, Count, Exists, OuterRef, Case, When, Value, FloatField
 from django.shortcuts import get_object_or_404
-from .models import Category, Facility, Cafe, CafePhoto, OpeningHour, MenuCategory, MenuItem
+from django.utils import timezone
+
+from .models import (
+    Category, Facility, Cafe, CafePhoto, OpeningHour,
+    MenuCategory, MenuItem, CafeChangeRequest
+)
 from .serializers import (
     CategorySerializer, FacilitySerializer, CafeListSerializer,
-    CafeDetailSerializer, CafeWriteSerializer, MenuItemSerializer, MenuCategorySerializer
+    CafeDetailSerializer, CafeWriteSerializer, MenuItemSerializer,
+    MenuCategorySerializer, CafeChangeRequestSerializer
 )
+from .google_places import sync_cafe_google_places
 from reviews.models import Favourite
 from business.models import BusinessMembership
-from core.models import Location
+from core.models import Location, AdminNotification
 
 
 def haversine_distance(lat1, lon1, lat2, lon2):
     """Calculates great-circle distance between two points on Earth in km."""
-    R = 6371.0 # Earth radius in kilometers
+    R = 6371.0  # Earth radius in kilometers
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
     a = (math.sin(dlat / 2) ** 2 +
@@ -99,11 +106,11 @@ class CafeListView(generics.ListAPIView):
 
         # Sorting
         sort_by = self.request.query_params.get('sort', 'relevance')
-        if sort_by == 'highest_rated' or sort_by == 'rating':
+        if sort_by in ('highest_rated', 'rating'):
             qs = qs.order_by('-average_rating', '-review_count')
-        elif sort_by == 'most_reviewed' or sort_by == 'reviews':
+        elif sort_by in ('most_reviewed', 'reviews'):
             qs = qs.order_by('-review_count', '-average_rating')
-        elif sort_by == 'newest' or sort_by == 'recently_added':
+        elif sort_by in ('newest', 'recently_added'):
             qs = qs.order_by('-created_at')
         elif sort_by == 'name':
             qs = qs.order_by('name')
@@ -137,7 +144,6 @@ class CafeListView(generics.ListAPIView):
                 except (ValueError, TypeError):
                     item['distance_km'] = None
 
-        # If sorting by nearest and coordinates provided
         if request.query_params.get('sort') == 'nearest' and user_lat and user_lng:
             results.sort(key=lambda x: x.get('distance_km') or 999999)
 
@@ -148,16 +154,24 @@ class CafeDetailView(views.APIView):
     permission_classes = [permissions.AllowAny]
 
     def get(self, request, slug):
+        # Allow platform admin or cafe operators to view unpublished cafes
         cafe = get_object_or_404(
             Cafe.objects.select_related('location')
             .prefetch_related('categories', 'facilities', 'photos', 'opening_hours', 'menu_categories__items'),
             slug=slug
         )
 
+        if cafe.publication_status != 'published':
+            can_view = False
+            if request.user.is_authenticated:
+                if request.user.is_platform_admin() or BusinessMembership.objects.filter(user=request.user, cafe=cafe).exists() or cafe.submitted_by == request.user:
+                    can_view = True
+            if not can_view:
+                return Response({'detail': 'Not found or not yet published.'}, status=status.HTTP_404_NOT_FOUND)
+
         serializer = CafeDetailSerializer(cafe)
         data = serializer.data
 
-        # Check favourites and owner claim status
         if request.user.is_authenticated:
             data['is_favourited'] = Favourite.objects.filter(user=request.user, cafe=cafe).exists()
             data['claimed_by_current_user'] = BusinessMembership.objects.filter(user=request.user, cafe=cafe).exists() or request.user.is_platform_admin()
@@ -165,7 +179,6 @@ class CafeDetailView(views.APIView):
             data['is_favourited'] = False
             data['claimed_by_current_user'] = False
 
-        # Related cafes (in same city or category)
         related = Cafe.objects.filter(
             publication_status='published',
             location=cafe.location
@@ -180,7 +193,7 @@ class CafeNearbyView(views.APIView):
 
     def get(self, request):
         try:
-            lat = float(request.query_params.get('lat', 26.6343)) # Default Birtamode Muktichowk
+            lat = float(request.query_params.get('lat', 26.6343))
             lng = float(request.query_params.get('lng', 87.9863))
             radius = float(request.query_params.get('radius', 15.0))
         except ValueError:
@@ -206,11 +219,33 @@ class CafeCreateView(generics.CreateAPIView):
 
     def perform_create(self, serializer):
         user = self.request.user
-        # If created by business user, default to pending verification
-        status_val = 'verified' if user.is_platform_admin() else 'pending'
-        cafe = serializer.save(verification_status=status_val)
+        is_admin = user.is_platform_admin()
+
+        pub_status = 'published' if is_admin else 'pending_review'
+        ver_status = 'verified' if is_admin else 'pending_verification'
+
+        cafe = serializer.save(
+            submitted_by=user,
+            publication_status=pub_status,
+            verification_status=ver_status
+        )
+
         if user.is_business_owner():
             BusinessMembership.objects.get_or_create(cafe=cafe, user=user, role='owner')
+
+        # Trigger initial Google Places sync if place_id was provided
+        if cafe.google_place_id:
+            sync_cafe_google_places(cafe)
+
+        # Notify platform admin if submitted by operator
+        if not is_admin:
+            AdminNotification.objects.create(
+                notification_type='listing_pending',
+                title=f"New Cafe Listing: {cafe.name}",
+                message=f"Cafe '{cafe.name}' in {cafe.address} was submitted by {user.get_full_name() or user.username} ({user.email}).",
+                related_object_type='Cafe',
+                related_object_id=str(cafe.id)
+            )
 
 
 class CafeUpdateView(generics.UpdateAPIView):
@@ -226,6 +261,155 @@ class CafeUpdateView(generics.UpdateAPIView):
         if not is_member:
             self.permission_denied(request, message="You are not authorized to edit this cafe listing.")
 
+    def perform_update(self, serializer):
+        cafe = serializer.save()
+        # If place ID changed or provided and not yet synced, sync Google Places
+        if cafe.google_place_id and cafe.google_sync_status != 'synced':
+            sync_cafe_google_places(cafe)
+
+
+# -------------------------------------------------------------
+# Admin Moderation & Google Places Endpoints
+# -------------------------------------------------------------
+
+class AdminCafeListView(generics.ListAPIView):
+    serializer_class = CafeListSerializer
+    permission_classes = [permissions.IsAdminUser]
+
+    def get_queryset(self):
+        qs = Cafe.objects.all().select_related('location').prefetch_related('categories', 'facilities')
+        pub_status = self.request.query_params.get('publication_status')
+        if pub_status:
+            qs = qs.filter(publication_status=pub_status)
+        ver_status = self.request.query_params.get('verification_status')
+        if ver_status:
+            qs = qs.filter(verification_status=ver_status)
+        q = self.request.query_params.get('q')
+        if q:
+            qs = qs.filter(Q(name__icontains=q) | Q(address__icontains=q))
+        return qs.order_by('-created_at')
+
+
+class AdminCafeReviewView(views.APIView):
+    permission_classes = [permissions.IsAdminUser]
+
+    def post(self, request, pk):
+        cafe = get_object_or_404(Cafe, pk=pk)
+        action = request.data.get('action') # 'publish', 'reject', 'suspend', 'verify', 'unverify'
+        admin_notes = request.data.get('admin_notes', '')
+        rejection_reason = request.data.get('rejection_reason', '')
+
+        if action == 'publish':
+            cafe.publication_status = 'published'
+        elif action == 'reject':
+            cafe.publication_status = 'rejected'
+            cafe.rejection_reason = rejection_reason
+        elif action == 'suspend':
+            cafe.publication_status = 'suspended'
+        elif action == 'verify':
+            cafe.verification_status = 'verified'
+            cafe.last_verified_at = timezone.now()
+        elif action == 'unverify':
+            cafe.verification_status = 'unverified'
+        else:
+            return Response({'error': f"Invalid action '{action}'."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if admin_notes:
+            cafe.admin_notes = admin_notes
+        cafe.save()
+
+        return Response({
+            'message': f"Cafe '{cafe.name}' updated successfully.",
+            'cafe': CafeDetailSerializer(cafe).data
+        })
+
+
+class AdminCafeSyncGoogleView(views.APIView):
+    permission_classes = [permissions.IsAdminUser]
+
+    def post(self, request, pk):
+        cafe = get_object_or_404(Cafe, pk=pk)
+        place_id = request.data.get('google_place_id')
+        if place_id:
+            cafe.google_place_id = place_id.strip()
+            cafe.save(update_fields=['google_place_id'])
+
+        synced = sync_cafe_google_places(cafe)
+        return Response({
+            'success': synced,
+            'google_sync_status': cafe.google_sync_status,
+            'google_rating': float(cafe.google_rating) if cafe.google_rating else None,
+            'google_user_ratings_total': cafe.google_user_ratings_total,
+            'google_maps_url': cafe.google_maps_url,
+            'google_last_synced_at': cafe.google_last_synced_at,
+        })
+
+
+# -------------------------------------------------------------
+# Cafe Change Requests Workflow
+# -------------------------------------------------------------
+
+class CafeChangeRequestListCreateView(generics.ListCreateAPIView):
+    serializer_class = CafeChangeRequestSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.is_platform_admin():
+            return CafeChangeRequest.objects.all().select_related('cafe', 'requested_by', 'reviewed_by')
+        return CafeChangeRequest.objects.filter(requested_by=user).select_related('cafe', 'requested_by', 'reviewed_by')
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        cafe = serializer.validated_data['cafe']
+        if not user.is_platform_admin():
+            if not BusinessMembership.objects.filter(cafe=cafe, user=user).exists():
+                raise PermissionDenied("You can only submit change requests for cafes you manage.")
+        change_req = serializer.save(requested_by=user)
+        AdminNotification.objects.create(
+            notification_type='claim_submitted',
+            title=f"Listing Update Request: {cafe.name}",
+            message=f"Operator {user.email} submitted modifications for {cafe.name} requiring admin approval.",
+            related_object_type='CafeChangeRequest',
+            related_object_id=str(change_req.id)
+        )
+
+
+class CafeChangeRequestReviewView(views.APIView):
+    permission_classes = [permissions.IsAdminUser]
+
+    def post(self, request, pk):
+        change_req = get_object_or_404(CafeChangeRequest, pk=pk)
+        decision = request.data.get('decision') # 'approve' or 'reject'
+        admin_notes = request.data.get('admin_notes', '')
+
+        if decision not in ('approve', 'reject'):
+            return Response({'error': 'Decision must be approve or reject.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        change_req.status = 'approved' if decision == 'approve' else 'rejected'
+        change_req.reviewed_by = request.user
+        change_req.reviewed_at = timezone.now()
+        change_req.admin_notes = admin_notes
+        change_req.save()
+
+        if decision == 'approve':
+            # Apply proposed changes safely
+            cafe = change_req.cafe
+            safe_fields = {'name', 'tagline', 'description', 'address', 'phone', 'email', 'website', 'social_instagram', 'social_facebook', 'price_range', 'cover_image_url'}
+            for field, val in change_req.proposed_changes.items():
+                if field in safe_fields and hasattr(cafe, field):
+                    setattr(cafe, field, val)
+            cafe.save()
+
+        return Response({
+            'message': f"Change request {decision}d successfully.",
+            'request': CafeChangeRequestSerializer(change_req).data
+        })
+
+
+# -------------------------------------------------------------
+# Menu Items & Global Search
+# -------------------------------------------------------------
 
 class MenuItemListCreateView(generics.ListCreateAPIView):
     serializer_class = MenuItemSerializer

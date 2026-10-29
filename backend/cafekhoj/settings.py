@@ -136,12 +136,46 @@ def configure_database(
     Safely configure Django database backend with strict production safeguards.
     Supports Supabase direct, session pooler, transaction pooler, and Render PostgreSQL.
     Strictly forbids SQLite in production runtime.
+    Robustly handles bracketed domain hostnames and passwords with special characters.
     """
     url_str = (database_url or '').strip()
 
     if url_str.startswith('postgres://') or url_str.startswith('postgresql://'):
+        import re
         import urllib.parse
-        _url = urllib.parse.urlparse(url_str)
+
+        # 1. Sanitize accidental square brackets around hostnames
+        # Python's urllib.parse treats @[hostname] as an IPv6 literal and raises ValueError if not valid IPv6.
+        # If brackets enclose a standard domain (containing dots/letters other than pure hex), remove the brackets.
+        def _unbracket(m):
+            h = m.group(1)
+            if '.' in h and not re.match(r'^[0-9a-fA-F:]+$', h):
+                return '@' + h
+            return m.group(0)
+
+        cleaned_url = re.sub(r'@\[([a-zA-Z0-9.-]+)\]', _unbracket, url_str)
+
+        # 2. Handle passwords with special characters (like '@' or '#') by splitting at the LAST '@' in the netloc
+        prefix = 'postgres://' if cleaned_url.startswith('postgres://') else 'postgresql://'
+        rest = cleaned_url[len(prefix):]
+        path_and_query = ''
+        if '/' in rest:
+            netloc, path_and_query = rest.split('/', 1)
+            path_and_query = '/' + path_and_query
+        else:
+            netloc = rest
+
+        if '@' in netloc:
+            userinfo, hostinfo = netloc.rsplit('@', 1)
+            if ':' in userinfo:
+                user, pwd = userinfo.split(':', 1)
+            else:
+                user, pwd = userinfo, ''
+            safe_user = urllib.parse.quote(urllib.parse.unquote(user))
+            safe_pwd = urllib.parse.quote(urllib.parse.unquote(pwd))
+            cleaned_url = f'{prefix}{safe_user}:{safe_pwd}@{hostinfo}{path_and_query}'
+
+        _url = urllib.parse.urlparse(cleaned_url)
         _options = {}
         _qs = urllib.parse.parse_qs(_url.query)
         _sslmode = _qs.get('sslmode', [None])[0]
@@ -381,3 +415,42 @@ LOGGING = {
         },
     },
 }
+
+# ---------------------------------------------------------------------------
+# EMAIL CONFIGURATION (OTP Verification & Transactional Alerts)
+# ---------------------------------------------------------------------------
+# The designated sender is registration@cafekhoj.gmail.com or configured DEFAULT_FROM_EMAIL.
+# Uses ConsoleBackend in development unless SMTP credentials are provided in .env.
+EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.gmail.com')
+EMAIL_PORT = int(os.getenv('EMAIL_PORT', '587'))
+EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'True').lower() in ('true', '1', 't')
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
+DEFAULT_FROM_EMAIL = os.getenv(
+    'DEFAULT_FROM_EMAIL',
+    'CafeKhoj Registration <registration@cafekhoj.gmail.com>'
+)
+EMAIL_TIMEOUT = int(os.getenv('EMAIL_TIMEOUT', '10'))
+
+if EMAIL_HOST_USER and EMAIL_HOST_PASSWORD:
+    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+else:
+    EMAIL_BACKEND = os.getenv(
+        'EMAIL_BACKEND',
+        'django.core.mail.backends.console.EmailBackend' if DEBUG else 'django.core.mail.backends.smtp.EmailBackend'
+    )
+
+# ---------------------------------------------------------------------------
+# GOOGLE PLACES & MAPS
+# ---------------------------------------------------------------------------
+GOOGLE_PLACES_API_KEY = os.getenv('GOOGLE_PLACES_API_KEY', os.getenv('GOOGLE_MAPS_API_KEY', '')).strip()
+
+# ---------------------------------------------------------------------------
+# SECURITY & POLICIES
+# ---------------------------------------------------------------------------
+MAX_AUTHORIZED_DEVICES_PER_OPERATOR = 1
+MAX_PLATFORM_ADMINISTRATORS = 2
+OTP_EXPIRY_MINUTES = 5
+OTP_RESEND_COOLDOWN_SECONDS = 60
+OTP_MAX_ATTEMPTS = 5
+

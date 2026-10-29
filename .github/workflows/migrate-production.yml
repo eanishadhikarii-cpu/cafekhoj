@@ -88,3 +88,4 @@ jobs:
           ALLOWED_HOSTS: "localhost,127.0.0.1,testserver,cafekhoj-api.onrender.com"
         run: |
           python manage.py verify_database
+
