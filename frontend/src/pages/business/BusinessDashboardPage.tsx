@@ -2,12 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Eye, Navigation, Phone, Star, MessageSquare, Plus,
-  CreditCard, Sparkles, CheckCircle2, ChevronRight, Edit3, Trash2, Loader2
+  CreditCard, Sparkles, CheckCircle2, ChevronRight, Edit3, Trash2,
+  Loader2, Smartphone, Shield, AlertCircle, Clock, CheckCircle, Coffee
 } from 'lucide-react';
 import { api } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { StarRating } from '../../components/common/StarRating';
-import { Cafe, Review, MenuItem } from '../../types';
+import { Cafe, Review, MenuItem, DeviceSession, BusinessClaim } from '../../types';
 
 export const BusinessDashboardPage: React.FC = () => {
   const { user, isBusiness } = useAuth();
@@ -16,8 +17,10 @@ export const BusinessDashboardPage: React.FC = () => {
   const [dashboardData, setDashboardData] = useState<any>(null);
   const [selectedCafe, setSelectedCafe] = useState<Cafe | null>(null);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+  const [devices, setDevices] = useState<DeviceSession[]>([]);
+  const [claims, setClaims] = useState<BusinessClaim[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'analytics' | 'menu' | 'reviews' | 'promotions'>('analytics');
+  const [activeTab, setActiveTab] = useState<'analytics' | 'menu' | 'reviews' | 'promotions' | 'devices' | 'claims'>('analytics');
 
   // New menu item modal
   const [showAddItem, setShowAddItem] = useState(false);
@@ -36,12 +39,20 @@ export const BusinessDashboardPage: React.FC = () => {
     const loadDashboard = async () => {
       try {
         setIsLoading(true);
-        const data = await api.getBusinessDashboard();
-        setDashboardData(data);
-        if (data.managed_cafes && data.managed_cafes.length > 0) {
-          const firstCafe = data.managed_cafes[0];
+        const [dashData, devData, claimsData] = await Promise.all([
+          api.getBusinessDashboard().catch(() => null),
+          api.getOperatorDevices().catch(() => []),
+          api.getUserClaims().catch(() => []),
+        ]);
+
+        setDashboardData(dashData);
+        setDevices(Array.isArray(devData) ? devData : (devData as any)?.results || []);
+        setClaims(Array.isArray(claimsData) ? claimsData : (claimsData as any)?.results || []);
+
+        if (dashData?.managed_cafes && dashData.managed_cafes.length > 0) {
+          const firstCafe = dashData.managed_cafes[0];
           setSelectedCafe(firstCafe);
-          const items = await api.getMenuItems(firstCafe.id);
+          const items = await api.getMenuItems(firstCafe.id).catch(() => []);
           setMenuItems(items);
         }
       } catch (err) {
@@ -69,10 +80,8 @@ export const BusinessDashboardPage: React.FC = () => {
     if (!selectedCafe) return;
     try {
       setIsSubmittingItem(true);
-      // Ensure there's a menu category or default to category 1
       const created = await api.createMenuItem({
         cafe: selectedCafe.id,
-        menu_category: 1, // Fallback/default menu category
         name: newItemName.trim(),
         price: parseFloat(newItemPrice) || 0,
         currency: 'NPR',
@@ -99,73 +108,74 @@ export const BusinessDashboardPage: React.FC = () => {
     try {
       await api.deleteMenuItem(itemId);
       setMenuItems((prev) => prev.filter((i) => i.id !== itemId));
-    } catch (err) {
-      alert('Failed to delete item.');
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete item.');
+    }
+  };
+
+  const handleDeauthorizeDevice = async (deviceId: number) => {
+    if (!window.confirm('Deauthorize this device? You will need to sign in again from an approved device.')) return;
+    try {
+      await api.deauthorizeDevice(deviceId);
+      const updated = await api.getOperatorDevices();
+      setDevices(Array.isArray(updated) ? updated : (updated as any)?.results || []);
+      alert('Device deauthorized successfully.');
+    } catch (err: any) {
+      alert(err.message || 'Failed to deauthorize device.');
     }
   };
 
   if (isLoading) {
     return (
-      <div className="max-w-7xl mx-auto px-4 py-20 text-center">
-        <Loader2 className="w-8 h-8 text-caramel animate-spin mx-auto mb-2" />
-        <p className="text-xs text-subtext">Loading merchant dashboard...</p>
+      <div className="min-h-[60vh] flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-caramel" />
       </div>
     );
   }
 
-  const managedCafes: Cafe[] = dashboardData?.managed_cafes || [];
-
-  if (managedCafes.length === 0 && !user?.role.includes('admin')) {
-    return (
-      <div className="max-w-xl mx-auto px-4 py-16 text-center space-y-4">
-        <div className="w-16 h-16 rounded-full bg-cream-200 text-espresso flex items-center justify-center mx-auto">
-          <Star className="w-8 h-8 text-caramel" />
-        </div>
-        <h2 className="font-serif text-2xl font-bold text-espresso">No Verified Cafes Linked</h2>
-        <p className="text-xs text-subtext leading-relaxed">
-          You don't currently have an approved cafe listing under your business profile. If you have already submitted an ownership claim, our team is verifying your registration.
-        </p>
-        <div className="pt-2">
-          <Link
-            to="/business/claim"
-            className="px-6 py-2.5 rounded-full text-xs font-bold bg-caramel text-white hover:bg-caramel-600 shadow-warm inline-block"
-          >
-            Claim a Cafe Now
-          </Link>
-        </div>
-      </div>
-    );
-  }
+  const managedCafes = dashboardData?.managed_cafes || [];
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-      {/* Top Banner */}
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <span className="text-xs font-bold uppercase tracking-wider text-caramel">Merchant Portal</span>
-          <h1 className="font-serif text-3xl font-bold text-espresso mt-0.5">
-            Business Dashboard
-          </h1>
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-caramel/10 text-caramel border border-caramel/20">
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Cafe Operator Portal</span>
+          </div>
+          <h1 className="font-serif text-3xl font-bold text-espresso mt-1">Merchant Dashboard</h1>
+          <p className="text-xs text-subtext">Manage your verified listing in Jhapa, menus, reviews, and security sessions.</p>
         </div>
 
-        {/* Cafe Switcher if multiple */}
-        {managedCafes.length > 1 && (
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-subtext font-medium">Select Cafe:</span>
-            <select
-              value={selectedCafe?.id}
-              onChange={(e) => {
-                const c = managedCafes.find((m) => m.id === Number(e.target.value));
-                if (c) handleCafeSelect(c);
-              }}
-              className="px-3 py-1.5 rounded-xl border border-latte bg-white text-xs font-bold text-espresso focus:outline-none focus:border-caramel"
-            >
-              {managedCafes.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
-          </div>
-        )}
+        {/* Cafe Switcher & Action */}
+        <div className="flex items-center gap-3">
+          {managedCafes.length > 1 && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-subtext font-medium">Select Cafe:</span>
+              <select
+                value={selectedCafe?.id}
+                onChange={(e) => {
+                  const c = managedCafes.find((m: Cafe) => m.id === Number(e.target.value));
+                  if (c) handleCafeSelect(c);
+                }}
+                className="px-3 py-1.5 rounded-xl border border-latte bg-white text-xs font-bold text-espresso focus:outline-none focus:border-caramel"
+              >
+                {managedCafes.map((c: Cafe) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <Link
+            to="/business/claim"
+            className="px-4 py-2 rounded-full text-xs font-bold bg-caramel text-white hover:bg-caramel-600 shadow-warm flex items-center gap-1.5"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Register / Claim Cafe</span>
+          </Link>
+        </div>
       </div>
 
       {/* KPI Cards */}
@@ -210,17 +220,19 @@ export const BusinessDashboardPage: React.FC = () => {
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-2 border-b border-latte/60 pb-1">
+      <div className="flex items-center gap-2 border-b border-latte/60 pb-1 overflow-x-auto">
         {[
           { id: 'analytics', label: 'Listing Profile & Hours' },
           { id: 'menu', label: `Digital Menu (${menuItems.length})` },
           { id: 'reviews', label: `Reviews (${dashboardData?.recent_reviews?.length || 0})` },
           { id: 'promotions', label: 'Promotions & Deals' },
+          { id: 'devices', label: `Authorized Devices (${devices.filter(d => d.is_active).length})` },
+          { id: 'claims', label: `My Submissions (${claims.length})` },
         ].map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id as any)}
-            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-colors ${
+            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap transition-colors ${
               activeTab === tab.id
                 ? 'bg-espresso text-cream shadow-warm'
                 : 'text-subtext hover:text-espresso hover:bg-cream-100'
@@ -232,40 +244,58 @@ export const BusinessDashboardPage: React.FC = () => {
       </div>
 
       {/* Tab 1: Profile & Hours */}
-      {activeTab === 'analytics' && selectedCafe && (
-        <div className="bg-white rounded-3xl p-6 sm:p-8 border border-latte shadow-warm space-y-6">
-          <div className="flex items-center justify-between flex-wrap gap-4">
-            <div>
-              <h2 className="font-serif text-xl font-bold text-espresso">{selectedCafe.name}</h2>
-              <p className="text-xs text-subtext">{selectedCafe.address}, {selectedCafe.location?.city}</p>
+      {activeTab === 'analytics' && (
+        selectedCafe ? (
+          <div className="bg-white rounded-3xl p-6 sm:p-8 border border-latte shadow-warm space-y-6">
+            <div className="flex items-center justify-between flex-wrap gap-4">
+              <div>
+                <h2 className="font-serif text-xl font-bold text-espresso">{selectedCafe.name}</h2>
+                <p className="text-xs text-subtext">{selectedCafe.address}, {selectedCafe.location?.city}</p>
+              </div>
+              <Link
+                to={`/cafes/${selectedCafe.slug}`}
+                className="px-4 py-2 rounded-full text-xs font-bold bg-cream-100 text-espresso hover:bg-latte-200 border border-latte"
+              >
+                Preview Public Page →
+              </Link>
             </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs pt-4 border-t border-latte/40">
+              <div>
+                <span className="font-bold text-subtext uppercase">Price Tier</span>
+                <p className="font-semibold text-espresso capitalize mt-0.5">{selectedCafe.price_range}</p>
+              </div>
+              <div>
+                <span className="font-bold text-subtext uppercase">Verification Status</span>
+                <p className="font-semibold text-sage-600 capitalize mt-0.5">
+                  {selectedCafe.verification_status || 'Verified Merchant'}
+                </p>
+              </div>
+              <div>
+                <span className="font-bold text-subtext uppercase">Contact Phone</span>
+                <p className="font-semibold text-espresso mt-0.5">{selectedCafe.phone || 'Not set'}</p>
+              </div>
+              <div>
+                <span className="font-bold text-subtext uppercase">Operating Coordinates</span>
+                <p className="font-semibold text-espresso mt-0.5">{selectedCafe.latitude}, {selectedCafe.longitude}</p>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="p-8 bg-white rounded-3xl border border-latte text-center space-y-3">
+            <Coffee className="w-10 h-10 text-caramel mx-auto" />
+            <h3 className="font-serif text-lg font-bold text-espresso">No Cafe Assigned Yet</h3>
+            <p className="text-xs text-subtext max-w-sm mx-auto">
+              You haven't claimed or registered a cafe listing yet. Claim your cafe or submit a new listing to start managing your digital presence.
+            </p>
             <Link
-              to={`/cafes/${selectedCafe.slug}`}
-              className="px-4 py-2 rounded-full text-xs font-bold bg-cream-100 text-espresso hover:bg-latte-200 border border-latte"
+              to="/business/claim"
+              className="inline-block mt-2 px-5 py-2 rounded-full text-xs font-bold bg-caramel text-white hover:bg-caramel-600 shadow-warm"
             >
-              Preview Public Page →
+              Claim or Register a Cafe
             </Link>
           </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs pt-4 border-t border-latte/40">
-            <div>
-              <span className="font-bold text-subtext uppercase">Price Tier</span>
-              <p className="font-semibold text-espresso capitalize mt-0.5">{selectedCafe.price_range}</p>
-            </div>
-            <div>
-              <span className="font-bold text-subtext uppercase">Verification Status</span>
-              <p className="font-semibold text-sage-600 capitalize mt-0.5">Verified Merchant</p>
-            </div>
-            <div>
-              <span className="font-bold text-subtext uppercase">Contact Phone</span>
-              <p className="font-semibold text-espresso mt-0.5">{selectedCafe.phone || 'Not set'}</p>
-            </div>
-            <div>
-              <span className="font-bold text-subtext uppercase">Operating Coordinates</span>
-              <p className="font-semibold text-espresso mt-0.5">{selectedCafe.latitude}, {selectedCafe.longitude}</p>
-            </div>
-          </div>
-        </div>
+        )
       )}
 
       {/* Tab 2: Menu Editor */}
@@ -276,14 +306,16 @@ export const BusinessDashboardPage: React.FC = () => {
               <h3 className="font-serif text-xl font-bold text-espresso">Manage Menu Items</h3>
               <p className="text-xs text-subtext">Prices are presented in Nepali Rupees (NPR) to customers</p>
             </div>
-            <button
-              type="button"
-              onClick={() => setShowAddItem(true)}
-              className="px-4 py-2 rounded-full text-xs font-bold bg-caramel text-white hover:bg-caramel-600 shadow-warm flex items-center gap-1.5"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Add New Item</span>
-            </button>
+            {selectedCafe && (
+              <button
+                type="button"
+                onClick={() => setShowAddItem(true)}
+                className="px-4 py-2 rounded-full text-xs font-bold bg-caramel text-white hover:bg-caramel-600 shadow-warm flex items-center gap-1.5"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add New Item</span>
+              </button>
+            )}
           </div>
 
           {showAddItem && (
@@ -379,7 +411,92 @@ export const BusinessDashboardPage: React.FC = () => {
           <p className="text-xs text-subtext">Manage live campaigns or configure sponsored slots from the promotions page.</p>
         </div>
       )}
+
+      {/* Tab 5: Authorized Devices */}
+      {activeTab === 'devices' && (
+        <div className="bg-white rounded-3xl p-6 sm:p-8 border border-latte shadow-warm space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="font-serif text-xl font-bold text-espresso">Authorized Devices</h3>
+              <p className="text-xs text-subtext">CafeKhoj operator security allows strictly <strong>1 active device session</strong> at a time.</p>
+            </div>
+            <div className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 flex items-center gap-1.5">
+              <Shield className="w-3.5 h-3.5" />
+              <span>1-Device Policy Active</span>
+            </div>
+          </div>
+
+          <div className="divide-y divide-latte/50">
+            {devices.map((dev) => (
+              <div key={dev.id} className="py-4 flex items-center justify-between gap-4">
+                <div className="space-y-1 text-xs">
+                  <div className="flex items-center gap-2">
+                    <Smartphone className="w-4 h-4 text-caramel" />
+                    <strong className="text-espresso font-serif text-sm">{dev.device_name}</strong>
+                    {dev.is_current_device && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-caramel text-white">Current Browser</span>
+                    )}
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${dev.is_active ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-600'}`}>
+                      {dev.is_active ? 'Active' : 'Deauthorized'}
+                    </span>
+                  </div>
+                  <p className="text-subtext">IP: <code className="font-mono">{dev.ip_address || 'unknown'}</code> &bull; Last Active: {new Date(dev.last_active_at).toLocaleString()}</p>
+                </div>
+
+                {dev.is_active && (
+                  <button
+                    type="button"
+                    onClick={() => handleDeauthorizeDevice(dev.id)}
+                    className="px-3 py-1.5 rounded-xl text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200"
+                  >
+                    Deauthorize
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Tab 6: My Submissions & Claims */}
+      {activeTab === 'claims' && (
+        <div className="bg-white rounded-3xl p-6 sm:p-8 border border-latte shadow-warm space-y-6">
+          <div>
+            <h3 className="font-serif text-xl font-bold text-espresso">My Ownership Claims & Submissions</h3>
+            <p className="text-xs text-subtext">Track the approval and verification progress of your submitted cafes.</p>
+          </div>
+
+          {claims.length === 0 ? (
+            <div className="text-center py-8 text-xs text-subtext">
+              No claims submitted yet. Use the <Link to="/business/claim" className="text-caramel font-bold hover:underline">Claim Cafe</Link> page to request access.
+            </div>
+          ) : (
+            <div className="divide-y divide-latte/50">
+              {claims.map((claim) => (
+                <div key={claim.id} className="py-4 flex items-center justify-between gap-4 text-xs">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <strong className="text-espresso font-serif text-sm">{claim.cafe_name}</strong>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                        claim.status === 'approved' ? 'bg-emerald-100 text-emerald-800' :
+                        claim.status === 'rejected' ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-800'
+                      }`}>
+                        {claim.status}
+                      </span>
+                    </div>
+                    <p className="text-subtext">Role: {claim.business_role} &bull; Submitted: {new Date(claim.created_at).toLocaleDateString()}</p>
+                    {claim.admin_notes && (
+                      <p className="text-espresso font-mono text-[11px] bg-cream-50 p-2 rounded-lg border border-latte">
+                        Admin Note: {claim.admin_notes}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };
-
