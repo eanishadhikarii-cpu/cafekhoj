@@ -17,6 +17,7 @@ def send_otp_verification_email(email: str = None, otp_code: str = '', first_nam
         logger.error("send_otp_verification_email called without an email address.")
         return False
 
+
     subject = "Verify your CafeKhoj account"
     from_email = getattr(
         settings, 'DEFAULT_FROM_EMAIL', 'CafeKhoj Registration <registration@cafekhoj.gmail.com>'
@@ -101,4 +102,29 @@ def send_otp_verification_email(email: str = None, otp_code: str = '', first_nam
         return True
     except Exception as exc:
         logger.error(f"Failed to dispatch OTP verification email to {email_address}: {exc}")
+        return False
+
+
+def send_password_reset_email(recipient_email: str, otp_code: str, recipient_name: str = '') -> bool:
+    """Send a password-reset code without logging or returning the secret."""
+    if not recipient_email:
+        return False
+    subject = 'Reset your CafeKhoj password'
+    from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', None)
+    greeting = f"Hello {recipient_name}," if recipient_name else 'Hello,'
+    body = (
+        f"{greeting}\n\nUse this code to reset your CafeKhoj password: {otp_code}\n"
+        "The code expires in 10 minutes and can only be used once. If you did not request this, ignore this email."
+    )
+    html = (
+        f"<p>{greeting}</p><p>Use this code to reset your CafeKhoj password:</p>"
+        f"<p style='font-size:28px;font-weight:bold;letter-spacing:6px'>{otp_code}</p>"
+        "<p>The code expires in 10 minutes and can only be used once. If you did not request this, ignore this email.</p>"
+    )
+    try:
+        mail = EmailMultiAlternatives(subject, body, from_email, [recipient_email])
+        mail.attach_alternative(html, 'text/html')
+        return mail.send(fail_silently=False) == 1
+    except Exception:
+        logger.exception('Failed to dispatch password-reset email.')
         return False

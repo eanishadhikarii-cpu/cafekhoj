@@ -4,11 +4,28 @@
 // Automatically normalizes base so both 'https://.../api/v1' and 'https://...' work without duplicate segments.
 const rawApiUrl = (import.meta.env.VITE_API_URL as string | undefined)?.trim();
 function getApiBase(): string {
-  if (!rawApiUrl) return '/api/v1';
+  // Vite's relative API route is proxied locally, but Vercel has no /api
+  // backend rewrite. Point production builds at the deployed Django API when
+  // VITE_API_URL is not explicitly configured.
+  if (!rawApiUrl) {
+    return import.meta.env.PROD
+      ? 'https://cafekhoj-api.onrender.com/api/v1'
+      : '/api/v1';
+  }
   const clean = rawApiUrl.replace(/\/+$/, '');
   return clean.endsWith('/api/v1') ? clean : `${clean}/api/v1`;
 }
 const API_BASE: string = getApiBase();
+const PUBLIC_ENDPOINTS_WITHOUT_BEARER = new Set([
+  '/auth/login/',
+  '/auth/register/',
+  '/auth/verify-otp/',
+  '/auth/resend-otp/',
+  '/auth/password-reset/',
+  '/auth/password-reset/confirm/',
+  '/health/',
+  '/locations/',
+]);
 
 function getOrCreateDeviceId(): string {
   let devId = localStorage.getItem('cafekhoj_device_id');
@@ -39,7 +56,10 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     ...(options.headers as Record<string, string>),
   };
 
-  const token = localStorage.getItem('cafekhoj_access_token');
+  const requestPath = endpoint.split('?')[0];
+  const token = PUBLIC_ENDPOINTS_WITHOUT_BEARER.has(requestPath)
+    ? null
+    : localStorage.getItem('cafekhoj_access_token');
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
@@ -60,8 +80,17 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
           body: JSON.stringify({ refresh: refreshToken }),
         });
         if (refreshRes.ok) {
-          const { access } = await refreshRes.json();
+          const refreshed = await refreshRes.json();
+          const access = refreshed.access as string | undefined;
+          if (!access) {
+            throw new Error('The token refresh response did not include an access token.');
+          }
           localStorage.setItem('cafekhoj_access_token', access);
+          // SimpleJWT can rotate refresh tokens. Persist the replacement so the
+          // next refresh does not keep presenting a stale token.
+          if (typeof refreshed.refresh === 'string') {
+            localStorage.setItem('cafekhoj_refresh_token', refreshed.refresh);
+          }
           headers['Authorization'] = `Bearer ${access}`;
           const retryRes = await fetch(url, { ...options, headers });
           if (!retryRes.ok) {
@@ -81,7 +110,19 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 
   if (!response.ok) {
     const errData = await response.json().catch(() => ({}));
-    const message = errData.detail || errData.error || (Array.isArray(errData) ? errData[0] : 'An unexpected error occurred');
+    let message = errData.detail || errData.error;
+    if (!message) {
+      if (Array.isArray(errData)) {
+        message = errData[0];
+      } else if (typeof errData === 'object' && errData !== null) {
+        const firstKey = Object.keys(errData)[0];
+        if (firstKey) {
+          const val = errData[firstKey];
+          message = Array.isArray(val) ? `${val[0]}` : String(val);
+        }
+      }
+    }
+    message = message || 'An unexpected error occurred';
     throw new ApiError(message, response.status, errData);
   }
 
@@ -98,6 +139,9 @@ export const api = {
   register: (data: any) => request<any>('/auth/register/', { method: 'POST', body: JSON.stringify(data) }),
   verifyOTP: (email: string, code: string) => request<any>('/auth/verify-otp/', { method: 'POST', body: JSON.stringify({ email, code }) }),
   resendOTP: (email: string) => request<any>('/auth/resend-otp/', { method: 'POST', body: JSON.stringify({ email }) }),
+  requestPasswordReset: (email: string) => request<any>('/auth/password-reset/', { method: 'POST', body: JSON.stringify({ email }) }),
+  confirmPasswordReset: (data: { email: string; code: string; password: string; confirm_password: string }) =>
+    request<any>('/auth/password-reset/confirm/', { method: 'POST', body: JSON.stringify(data) }),
   getMe: () => request<any>('/auth/me/'),
   updateMe: (data: any) => request<any>('/auth/me/', { method: 'PATCH', body: JSON.stringify(data) }),
 

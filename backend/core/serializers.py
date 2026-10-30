@@ -3,7 +3,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils import timezone
 from rest_framework import serializers
 from .models import (
-    User, Location, AuditLog, AnalyticsEvent, EmailOTP,
+    User, Location, AuditLog, AnalyticsEvent, EmailOTP, PasswordResetChallenge,
     DeviceSession, DeviceAuthorizationRequest, PlatformAdministrator, AdminNotification
 )
 from .email import send_otp_verification_email
@@ -18,6 +18,30 @@ class UserSerializer(serializers.ModelSerializer):
             'bio', 'is_email_verified', 'created_at'
         ]
         read_only_fields = ['id', 'role', 'is_email_verified', 'created_at']
+
+
+class PasswordResetRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    code = serializers.CharField(min_length=6, max_length=6, trim_whitespace=True)
+    password = serializers.CharField(write_only=True, min_length=8)
+    confirm_password = serializers.CharField(write_only=True, min_length=8)
+
+    def validate(self, attrs):
+        if attrs['password'] != attrs['confirm_password']:
+            raise serializers.ValidationError({'confirm_password': 'Passwords do not match.'})
+        user = User.objects.filter(email__iexact=attrs['email']).first()
+        if not user:
+            raise serializers.ValidationError({'code': 'Invalid or expired reset code.'})
+        try:
+            validate_password(attrs['password'], user=user)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError({'password': list(exc.messages)})
+        attrs['user'] = user
+        return attrs
 
 
 class RegisterSerializer(serializers.ModelSerializer):

@@ -1,7 +1,9 @@
 from django.urls import path
 from rest_framework_simplejwt.views import TokenRefreshView
+from .token_serializers import PasswordAwareTokenRefreshSerializer
 from .views import (
     RegisterView, VerifyOTPView, ResendOTPView, LoginView, MeView,
+    PasswordResetRequestView, PasswordResetConfirmView,
     LocationListView, AnalyticsTrackView, AuditLogListView, health_check,
     OperatorDeviceListView, OperatorDeauthorizeDeviceView,
     AdminDeviceRequestsListView, AdminDeviceRequestReviewView,
@@ -18,8 +20,10 @@ urlpatterns = [
     path('auth/register/', RegisterView.as_view(), name='auth-register'),
     path('auth/verify-otp/', VerifyOTPView.as_view(), name='auth-verify-otp'),
     path('auth/resend-otp/', ResendOTPView.as_view(), name='auth-resend-otp'),
+    path('auth/password-reset/', PasswordResetRequestView.as_view(), name='password-reset-request'),
+    path('auth/password-reset/confirm/', PasswordResetConfirmView.as_view(), name='password-reset-confirm'),
     path('auth/login/', LoginView.as_view(), name='auth-login'),
-    path('auth/refresh/', TokenRefreshView.as_view(), name='token-refresh'),
+    path('auth/refresh/', TokenRefreshView.as_view(serializer_class=PasswordAwareTokenRefreshSerializer), name='token-refresh'),
     path('auth/me/', MeView.as_view(), name='auth-me'),
 
     # Operator Device Management

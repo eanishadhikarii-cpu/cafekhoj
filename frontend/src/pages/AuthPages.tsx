@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Coffee, AlertCircle, CheckCircle, ArrowRight, Loader2, ShieldAlert, KeyRound, RefreshCw, Smartphone } from 'lucide-react';
+import { Coffee, AlertCircle, CheckCircle, ArrowRight, Loader2, ShieldAlert, KeyRound, RefreshCw, Smartphone, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 
@@ -12,13 +12,17 @@ export const LoginPage: React.FC = () => {
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [deviceAuthInfo, setDeviceAuthInfo] = useState<{ deviceName: string; requestId?: number } | null>(null);
   const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const submitInProgress = useRef(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitInProgress.current) return;
+    submitInProgress.current = true;
     try {
       setIsLoading(true);
       setErrorMsg(null);
@@ -46,6 +50,7 @@ export const LoginPage: React.FC = () => {
         setErrorMsg(err.message || 'Invalid username or password.');
       }
     } finally {
+      submitInProgress.current = false;
       setIsLoading(false);
     }
   };
@@ -114,6 +119,7 @@ export const LoginPage: React.FC = () => {
               Username or Email
             </label>
             <input
+              autoComplete="username"
               type="text"
               required
               value={username}
@@ -132,14 +138,25 @@ export const LoginPage: React.FC = () => {
                 Forgot password?
               </Link>
             </div>
-            <input
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              className="w-full text-xs p-3 rounded-xl border border-latte focus:outline-none focus:border-caramel bg-cream-50/50 text-espresso"
-            />
+            <div className="relative">
+              <input
+                autoComplete="current-password"
+                type={showPassword ? 'text' : 'password'}
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className="w-full text-xs p-3 pr-12 rounded-xl border border-latte focus:outline-none focus:border-caramel bg-cream-50/50 text-espresso"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((visible) => !visible)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                className="absolute inset-y-0 right-1 px-3 text-subtext hover:text-espresso"
+              >
+                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
           </div>
 
           <button
@@ -180,6 +197,7 @@ export const RegisterPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPasswords, setShowPasswords] = useState(false);
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [phone, setPhone] = useState('');
@@ -288,7 +306,7 @@ export const RegisterPage: React.FC = () => {
           </div>
 
           {/* Names */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-espresso mb-1">First Name</label>
               <input
@@ -314,7 +332,7 @@ export const RegisterPage: React.FC = () => {
           </div>
 
           {/* Username & Phone */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-espresso mb-1">Username</label>
               <input
@@ -376,25 +394,33 @@ export const RegisterPage: React.FC = () => {
           )}
 
           {/* Passwords */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-espresso mb-1">Password</label>
               <input
                 required
                 minLength={8}
-                type="password"
+                type={showPasswords ? 'text' : 'password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Min 8 characters"
-                className="w-full text-xs p-3 rounded-xl border border-latte bg-cream-50/50 text-espresso focus:outline-none focus:border-caramel"
+                className="w-full text-xs p-3 pr-12 rounded-xl border border-latte bg-cream-50/50 text-espresso focus:outline-none focus:border-caramel"
               />
+              <button
+                type="button"
+                onClick={() => setShowPasswords((visible) => !visible)}
+                aria-label={showPasswords ? 'Hide passwords' : 'Show passwords'}
+                className="mt-1 text-[11px] text-caramel hover:underline"
+              >
+                {showPasswords ? 'Hide passwords' : 'Show passwords'}
+              </button>
             </div>
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-espresso mb-1">Confirm Password</label>
               <input
                 required
                 minLength={8}
-                type="password"
+                type={showPasswords ? 'text' : 'password'}
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder="Re-enter password"
@@ -603,27 +629,97 @@ export const VerifyEmailPage: React.FC = () => {
 
 export const ForgotPasswordPage: React.FC = () => {
   const [email, setEmail] = useState('');
-  const [submitted, setSubmitted] = useState(false);
+  const [code, setCode] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [step, setStep] = useState<'request' | 'confirm' | 'complete'>('request');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [resendAt, setResendAt] = useState<number | null>(null);
+  const [secondsRemaining, setSecondsRemaining] = useState(0);
+
+  useEffect(() => {
+    if (!resendAt) return;
+    const update = () => setSecondsRemaining(Math.max(0, Math.ceil((resendAt - Date.now()) / 1000)));
+    update();
+    const timer = window.setInterval(update, 1000);
+    return () => window.clearInterval(timer);
+  }, [resendAt]);
+
+  const requestCode = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      await api.requestPasswordReset(email.trim().toLowerCase());
+      setStep('confirm');
+      setResendAt(Date.now() + 60_000);
+    } catch (err: any) {
+      setError(err.message || 'Could not submit the reset request. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const confirmReset = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (password !== confirmPassword) {
+      setError('Passwords do not match.');
+      return;
+    }
+    setIsLoading(true);
+    setError(null);
+    try {
+      await api.confirmPasswordReset({ email: email.trim().toLowerCase(), code: code.trim(), password, confirm_password: confirmPassword });
+      setStep('complete');
+    } catch (err: any) {
+      setError(err.message || 'The code could not be verified. Request a new one and try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   return (
     <div className="min-h-[70vh] flex items-center justify-center px-4 py-12">
       <div className="w-full max-w-md bg-white rounded-3xl p-8 border border-latte shadow-warm text-center space-y-4">
         <h1 className="font-serif text-2xl font-bold text-espresso">Reset Your Password</h1>
-        {submitted ? (
-          <div className="p-4 bg-emerald-50 rounded-2xl text-xs text-emerald-800 space-y-2">
+        {error && <div role="alert" className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm">{error}</div>}
+        {step === 'complete' ? (
+          <div role="status" className="p-4 bg-emerald-50 rounded-2xl text-sm text-emerald-800 space-y-2">
             <CheckCircle className="w-8 h-8 text-emerald-600 mx-auto" />
-            <p>If an account exists for {email}, a secure password recovery instruction has been dispatched.</p>
+            <p>Your password has been reset. Sign in with your new password.</p>
             <Link to="/login" className="inline-block mt-2 font-bold text-caramel hover:underline">Back to Login</Link>
           </div>
-        ) : (
-          <form onSubmit={(e) => { e.preventDefault(); setSubmitted(true); }} className="space-y-4 text-left">
-            <p className="text-xs text-subtext">Enter your registered email address to receive password reset instructions.</p>
+        ) : step === 'request' ? (
+          <form onSubmit={(e) => { e.preventDefault(); void requestCode(); }} className="space-y-4 text-left">
+            <p className="text-sm text-subtext">Enter your account email. If an active account uses it, we’ll send a one-time reset code. If no message arrives, contact support.</p>
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-espresso mb-1">Email</label>
-              <input required type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full text-xs p-3 rounded-xl border border-latte bg-cream-50/50 text-espresso focus:outline-none focus:border-caramel" />
+              <input autoComplete="email" required type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full text-sm p-3 rounded-xl border border-latte bg-cream-50/50 text-espresso focus:outline-none focus:border-caramel" />
             </div>
-            <button type="submit" className="w-full py-2.5 rounded-full text-xs font-bold bg-caramel text-white hover:bg-caramel-600 shadow-warm">
-              Send Password Instructions
+            <button type="submit" disabled={isLoading} className="w-full min-h-[44px] py-2.5 rounded-full text-sm font-bold bg-caramel text-white hover:bg-caramel-600 shadow-warm disabled:opacity-60">
+              {isLoading ? 'Requesting code…' : 'Send Reset Code'}
+            </button>
+          </form>
+        ) : (
+          <form onSubmit={confirmReset} className="space-y-4 text-left">
+            <p className="text-sm text-subtext">Enter the 6-digit code sent to <strong>{email}</strong>, then choose a new password.</p>
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-espresso mb-1">Reset code</label>
+              <input required inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} className="w-full text-base tracking-[0.4em] p-3 rounded-xl border border-latte bg-cream-50/50 text-espresso focus:outline-none focus:border-caramel" />
+            </div>
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-espresso mb-1">New password</label>
+              <input required minLength={8} autoComplete="new-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full text-base p-3 rounded-xl border border-latte bg-cream-50/50 text-espresso focus:outline-none focus:border-caramel" />
+            </div>
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-espresso mb-1">Confirm new password</label>
+              <input required minLength={8} autoComplete="new-password" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className="w-full text-base p-3 rounded-xl border border-latte bg-cream-50/50 text-espresso focus:outline-none focus:border-caramel" />
+            </div>
+            <button type="submit" disabled={isLoading || code.length !== 6} className="w-full min-h-[44px] py-2.5 rounded-full text-sm font-bold bg-espresso text-white disabled:opacity-60">
+              {isLoading ? 'Resetting password…' : 'Reset Password'}
+            </button>
+            <button type="button" disabled={isLoading || secondsRemaining > 0} onClick={() => void requestCode()} className="w-full min-h-[44px] text-sm text-caramel disabled:opacity-60">
+              {secondsRemaining > 0 ? `Resend code in ${secondsRemaining}s` : 'Resend code'}
             </button>
           </form>
         )}

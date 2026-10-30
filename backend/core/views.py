@@ -1,15 +1,18 @@
 import hashlib
+import logging
 from datetime import timedelta
 from django.contrib.auth import authenticate
+from django.db import transaction
 from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import views, generics, status, permissions
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import (
-    User, Location, AuditLog, AnalyticsEvent, EmailOTP,
+    User, Location, AuditLog, AnalyticsEvent, EmailOTP, PasswordResetChallenge,
     DeviceSession, DeviceAuthorizationRequest, PlatformAdministrator, AdminNotification
 )
 from .serializers import (
@@ -17,9 +20,12 @@ from .serializers import (
     AuditLogSerializer, AnalyticsEventSerializer, VerifyOTPSerializer,
     ResendOTPSerializer, DeviceSessionSerializer,
     DeviceAuthorizationRequestSerializer, PlatformAdministratorSerializer,
-    AdminNotificationSerializer
+    AdminNotificationSerializer, PasswordResetRequestSerializer,
+    PasswordResetConfirmSerializer
 )
-from .email import send_otp_verification_email
+from .email import send_otp_verification_email, send_password_reset_email
+
+logger = logging.getLogger(__name__)
 
 
 def get_client_ip(request):
@@ -224,6 +230,69 @@ class ResendOTPView(views.APIView):
         }, status=status.HTTP_200_OK)
 
 
+class PasswordResetRequestView(views.APIView):
+    permission_classes = [permissions.AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'password_reset_request'
+
+    def post(self, request):
+        serializer = PasswordResetRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data['email'].strip().lower()
+        user = User.objects.filter(email__iexact=email, is_active=True).first()
+
+        # Same response for unknown addresses and cooldowns prevents account enumeration.
+        if user:
+            recent = PasswordResetChallenge.objects.filter(
+                user=user, created_at__gte=timezone.now() - timedelta(seconds=60)
+            ).exists()
+            if not recent:
+                challenge, code = PasswordResetChallenge.issue(user)
+                sent = send_password_reset_email(user.email, code, user.first_name or user.username)
+                if not sent:
+                    challenge.is_used = True
+                    challenge.save(update_fields=['is_used'])
+                    # Do not reveal whether the address belongs to an account.
+                    logger.error('Password reset email delivery failed.')
+
+        return Response({
+            'message': 'If an active account uses that address, reset instructions will be sent. If no email arrives, contact support.'
+        }, status=status.HTTP_202_ACCEPTED)
+
+
+class PasswordResetConfirmView(views.APIView):
+    permission_classes = [permissions.AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'password_reset_confirm'
+
+    def post(self, request):
+        serializer = PasswordResetConfirmSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.validated_data['user']
+
+        with transaction.atomic():
+            challenge = PasswordResetChallenge.objects.select_for_update().filter(
+                user=user, is_used=False
+            ).order_by('-created_at').first()
+            if not challenge or not challenge.check_code(serializer.validated_data['code']):
+                return Response({'error': 'Invalid or expired reset code.'}, status=status.HTTP_400_BAD_REQUEST)
+
+            user.set_password(serializer.validated_data['password'])
+            user.password_changed_at = timezone.now()
+            user.save(update_fields=['password', 'password_changed_at'])
+            PasswordResetChallenge.objects.filter(user=user, is_used=False).update(is_used=True)
+            DeviceSession.objects.filter(user=user, is_active=True).update(is_active=False)
+            AuditLog.objects.create(
+                actor_user=user,
+                action='password_reset',
+                entity_type='User',
+                entity_id=str(user.id),
+                details={'method': 'email_otp'},
+            )
+
+        return Response({'message': 'Password reset successfully. Please sign in with your new password.'})
+
+
 class LoginView(views.APIView):
     permission_classes = [permissions.AllowAny]
 
@@ -240,11 +309,9 @@ class LoginView(views.APIView):
         # Try authenticating with username or email
         user = authenticate(username=username, password=password)
         if not user:
-            try:
-                user_obj = User.objects.get(email__iexact=username)
+            user_obj = User.objects.filter(email__iexact=username).first()
+            if user_obj:
                 user = authenticate(username=user_obj.username, password=password)
-            except User.DoesNotExist:
-                user = None
 
         if not user:
             return Response(
@@ -330,6 +397,8 @@ class LoginView(views.APIView):
 
         # Issue JWT tokens
         refresh = RefreshToken.for_user(user)
+        if user.password_changed_at:
+            refresh['password_version'] = int(user.password_changed_at.timestamp())
         return Response({
             'user': UserSerializer(user).data,
             'access': str(refresh.access_token),

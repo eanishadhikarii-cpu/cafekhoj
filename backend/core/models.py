@@ -4,6 +4,7 @@ import string
 from datetime import timedelta
 from django.db import models
 from django.contrib.auth.models import AbstractUser
+from django.contrib.auth.hashers import check_password, make_password
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 
@@ -32,6 +33,7 @@ class User(AbstractUser):
     is_email_verified = models.BooleanField(default=False)
     terms_accepted_at = models.DateTimeField(null=True, blank=True)
     is_suspended = models.BooleanField(default=False)
+    password_changed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -138,6 +140,45 @@ class EmailOTP(models.Model):
             challenge.save(update_fields=['attempts'])
             remaining = challenge.max_attempts - challenge.attempts
             return False, f"Incorrect verification code. {remaining} attempt(s) remaining."
+
+
+class PasswordResetChallenge(models.Model):
+    """Purpose-bound one-time challenge; plaintext codes are never persisted."""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='password_reset_challenges')
+    code_hash = models.CharField(max_length=128)
+    salt = models.CharField(max_length=32)
+    expires_at = models.DateTimeField(db_index=True)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    max_attempts = models.PositiveSmallIntegerField(default=5)
+    is_used = models.BooleanField(default=False, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [models.Index(fields=['user', 'is_used', 'expires_at'])]
+
+    @classmethod
+    def issue(cls, user):
+        from datetime import timedelta
+        cls.objects.filter(user=user, is_used=False).update(is_used=True)
+        code = ''.join(secrets.choice(string.digits) for _ in range(6))
+        salt = secrets.token_hex(16)
+        code_hash = make_password(code, salt=salt)
+        challenge = cls.objects.create(
+            user=user, code_hash=code_hash, salt=salt,
+            expires_at=timezone.now() + timedelta(minutes=10),
+        )
+        return challenge, code
+
+    def check_code(self, code):
+        if self.is_used or self.expires_at <= timezone.now() or self.attempts >= self.max_attempts:
+            return False
+        self.attempts += 1
+        valid = check_password(code.strip(), self.code_hash)
+        if valid or self.attempts >= self.max_attempts:
+            self.is_used = True
+        self.save(update_fields=['attempts', 'is_used'])
+        return valid
 
 
 class DeviceSession(models.Model):

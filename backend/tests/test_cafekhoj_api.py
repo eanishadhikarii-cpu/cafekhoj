@@ -87,6 +87,110 @@ class CafeKhojAPITests(TestCase):
         self.assertEqual(login_res.status_code, status.HTTP_200_OK)
         self.assertIn('access', login_res.data)
 
+        refresh_res = self.client.post(reverse('token-refresh'), {
+            'refresh': login_res.data['refresh'],
+        }, format='json')
+        self.assertEqual(refresh_res.status_code, status.HTTP_200_OK)
+        self.assertIn('access', refresh_res.data)
+
+    def test_login_rejects_invalid_credentials_with_clear_error(self):
+        response = self.client.post(reverse('auth-login'), {
+            'username': self.customer.username,
+            'password': 'incorrect-password',
+        })
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertIn('error', response.data)
+        self.assertIn('Invalid credentials', response.data['error'])
+
+    def test_locations_are_public_and_return_expected_shape(self):
+        response = self.client.get(reverse('locations-list'))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsInstance(response.data, list)
+        location = next(item for item in response.data if item['id'] == self.loc.id)
+        self.assertEqual(location['city'], 'Birtamode')
+        self.assertIn('latitude', location)
+        self.assertIn('longitude', location)
+        self.assertIn('cafe_count', location)
+
+    def test_production_origin_preflight_allows_login_device_headers(self):
+        response = self.client.options(
+            reverse('auth-login'),
+            HTTP_ORIGIN='https://cafekhoj.vercel.app',
+            HTTP_ACCESS_CONTROL_REQUEST_METHOD='POST',
+            HTTP_ACCESS_CONTROL_REQUEST_HEADERS='content-type,x-device-id,x-device-name',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response['Access-Control-Allow-Origin'], 'https://cafekhoj.vercel.app')
+        allowed_headers = response['Access-Control-Allow-Headers'].lower()
+        self.assertIn('x-device-id', allowed_headers)
+        self.assertIn('x-device-name', allowed_headers)
+
+    def test_password_reset_request_and_confirmation_change_password(self):
+        from django.core import mail
+        import re
+
+        self.customer.is_email_verified = True
+        self.customer.save(update_fields=['is_email_verified'])
+        old_session = self.client.post(reverse('auth-login'), {
+            'username': self.customer.username, 'password': 'UserPass123!',
+        }, format='json')
+        self.assertEqual(old_session.status_code, status.HTTP_200_OK)
+
+        request = self.client.post(reverse('password-reset-request'), {'email': self.customer.email}, format='json')
+        self.assertEqual(request.status_code, status.HTTP_202_ACCEPTED)
+        self.assertNotIn('code', request.data)
+        self.assertEqual(len(mail.outbox), 1)
+        match = re.search(r'\b\d{6}\b', mail.outbox[0].body)
+        self.assertIsNotNone(match)
+
+        reset = self.client.post(reverse('password-reset-confirm'), {
+            'email': self.customer.email,
+            'code': match.group(0),
+            'password': 'A-NewSecurePass123!x',
+            'confirm_password': 'A-NewSecurePass123!x',
+        }, format='json')
+        self.assertEqual(reset.status_code, status.HTTP_200_OK)
+        self.customer.refresh_from_db()
+        self.assertTrue(self.customer.check_password('A-NewSecurePass123!x'))
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {old_session.data['access']}")
+        self.assertEqual(self.client.get(reverse('auth-me')).status_code, status.HTTP_401_UNAUTHORIZED)
+        self.client.credentials()
+        old_refresh = self.client.post(reverse('token-refresh'), {
+            'refresh': old_session.data['refresh'],
+        }, format='json')
+        self.assertEqual(old_refresh.status_code, status.HTTP_400_BAD_REQUEST)
+
+        old_login = self.client.post(reverse('auth-login'), {
+            'username': self.customer.username, 'password': 'UserPass123!',
+        }, format='json')
+        new_login = self.client.post(reverse('auth-login'), {
+            'username': self.customer.username, 'password': 'A-NewSecurePass123!x',
+        }, format='json')
+        self.assertEqual(old_login.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(new_login.status_code, status.HTTP_200_OK)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {new_login.data['access']}")
+        self.assertEqual(self.client.get(reverse('auth-me')).status_code, status.HTTP_200_OK)
+        self.client.credentials()
+
+        reused = self.client.post(reverse('password-reset-confirm'), {
+            'email': self.customer.email,
+            'code': match.group(0),
+            'password': 'Another-SecurePass123!x',
+            'confirm_password': 'Another-SecurePass123!x',
+        }, format='json')
+        self.assertEqual(reused.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_password_reset_does_not_reveal_unknown_email(self):
+        from django.core import mail
+        response = self.client.post(reverse('password-reset-request'), {'email': 'nobody@example.test'}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertIn('If an active account', response.data['message'])
+
     def test_cafe_list_and_filtering(self):
         """Tests cafe listing, filtering by city and category."""
         res = self.client.get(reverse('cafe-list'))

@@ -33,7 +33,10 @@ if not DEBUG and SECRET_KEY == _DEFAULT_DEV_KEY:
 
 ALLOWED_HOSTS = [
     host.strip()
-    for host in os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1,testserver').split(',')
+    for host in os.getenv(
+        'ALLOWED_HOSTS',
+        'localhost,127.0.0.1,testserver,cafekhoj-api.onrender.com,.onrender.com',
+    ).split(',')
     if host.strip()
 ]
 # Automatically permit Render's dynamic external hostname if present
@@ -299,7 +302,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'core.authentication.PasswordVersionJWTAuthentication',
         'rest_framework.authentication.SessionAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': (
@@ -313,6 +316,10 @@ REST_FRAMEWORK = {
         'rest_framework.filters.OrderingFilter',
     ),
     'NON_FIELD_ERRORS_KEY': 'error',
+    'DEFAULT_THROTTLE_RATES': {
+        'password_reset_request': '5/hour',
+        'password_reset_confirm': '10/hour',
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -340,9 +347,20 @@ CORS_ALLOWED_ORIGINS = [
     origin.strip().rstrip('/')
     for origin in os.getenv(
         'CORS_ALLOWED_ORIGINS',
-        'http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000',
+        'https://cafekhoj.vercel.app,http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000',
     ).split(',')
     if origin.strip()
+]
+
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^https:\/\/.*\.vercel\.app$",
+]
+
+from corsheaders.defaults import default_headers
+
+CORS_ALLOW_HEADERS = list(default_headers) + [
+    'x-device-id',
+    'x-device-name',
 ]
 
 CORS_ALLOW_CREDENTIALS = True
@@ -358,7 +376,7 @@ CSRF_TRUSTED_ORIGINS = [
     origin.strip().rstrip('/')
     for origin in os.getenv(
         'CSRF_TRUSTED_ORIGINS',
-        'http://localhost:5173,http://127.0.0.1:5173',
+        'https://cafekhoj.vercel.app,https://cafekhoj-api.onrender.com,http://localhost:5173,http://127.0.0.1:5173',
     ).split(',')
     if origin.strip()
 ]

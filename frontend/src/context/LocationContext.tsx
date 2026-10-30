@@ -29,8 +29,13 @@ export const LocationProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   useEffect(() => {
     api.getLocations()
-      .then(data => setLocations(data))
-      .catch(() => {});
+      .then(data => {
+        const list = Array.isArray(data) ? data : (data as any)?.results || [];
+        setLocations(list);
+      })
+      .catch(err => {
+        console.warn('Locations API request failed, operating in resilient mode:', err);
+      });
   }, []);
 
   const requestUserLocation = async (): Promise<{ lat: number; lng: number } | null> => {

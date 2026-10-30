@@ -21,8 +21,6 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          // Three.js and React Three Fiber are the largest contributors (~900 kB)
-          'three-vendor': ['three', '@react-three/fiber', '@react-three/drei'],
           // React core
           'react-vendor': ['react', 'react-dom', 'react-router-dom'],
           // Leaflet map

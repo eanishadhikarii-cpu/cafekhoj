@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Heart, MapPin, Navigation, Clock, ShieldCheck } from 'lucide-react';
+import { Heart, MapPin, Navigation, Star } from 'lucide-react';
 import { Cafe } from '../../types';
 import { StarRating } from './StarRating';
 import { Badge } from './Badge';
@@ -45,7 +45,7 @@ export const CafeCard: React.FC<CafeCardProps> = ({ cafe, layout = 'grid', onFav
     return (
       <div className="group bg-white rounded-2xl p-3 sm:p-4 border border-latte/60 shadow-warm hover:shadow-warm-lg transition-all duration-300 flex flex-col sm:flex-row gap-4 relative overflow-hidden">
         {/* Cover Photo */}
-        <Link to={`/cafes/${cafe.slug}`} className="sm:w-56 h-48 sm:h-auto rounded-xl overflow-hidden relative block flex-shrink-0">
+        <Link to={`/cafes/${cafe.slug}`} className="w-full sm:w-56 h-48 sm:h-auto sm:min-h-[160px] rounded-xl overflow-hidden relative block flex-shrink-0 bg-cream-100">
           <img
             src={coverUrl}
             alt={cafe.name}
@@ -56,8 +56,8 @@ export const CafeCard: React.FC<CafeCardProps> = ({ cafe, layout = 'grid', onFav
             type="button"
             onClick={handleToggleFav}
             disabled={isTogglingFav}
-            aria-label="Save to favourites"
-            className="absolute top-2.5 right-2.5 p-2 rounded-full glass-panel shadow-sm hover:scale-110 active:scale-95 transition-transform focus:outline-none"
+            aria-label={isFavourited ? 'Remove from saved' : 'Save to favourites'}
+            className="absolute top-2.5 right-2.5 min-h-[44px] min-w-[44px] flex items-center justify-center p-2 rounded-full glass-panel shadow-sm hover:scale-110 active:scale-95 transition-transform focus:outline-none"
           >
             <Heart
               className={`w-4 h-4 transition-colors ${
@@ -68,7 +68,7 @@ export const CafeCard: React.FC<CafeCardProps> = ({ cafe, layout = 'grid', onFav
         </Link>
 
         {/* Content */}
-        <div className="flex-1 flex flex-col justify-between">
+        <div className="flex-1 flex flex-col justify-between min-w-0">
           <div>
             <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
               <div className="flex items-center gap-1.5 flex-wrap">
@@ -85,7 +85,7 @@ export const CafeCard: React.FC<CafeCardProps> = ({ cafe, layout = 'grid', onFav
             </div>
 
             <Link to={`/cafes/${cafe.slug}`} className="block">
-              <h3 className="font-serif text-xl font-bold text-espresso group-hover:text-caramel transition-colors">
+              <h3 className="font-serif text-lg sm:text-xl font-bold text-espresso group-hover:text-caramel transition-colors truncate">
                 {cafe.name}
               </h3>
             </Link>
@@ -100,13 +100,13 @@ export const CafeCard: React.FC<CafeCardProps> = ({ cafe, layout = 'grid', onFav
             </div>
           </div>
 
-          <div className="flex items-center justify-between pt-3 mt-3 border-t border-latte/40">
-            <StarRating rating={cafe.average_rating} reviewCount={cafe.review_count} />
+          <div className="flex items-center justify-between pt-3 mt-3 border-t border-latte/40 gap-2">
+            <StarRating rating={cafe.average_rating} reviewCount={cafe.review_count} size="sm" />
             <Link
               to={`/cafes/${cafe.slug}`}
-              className="text-xs font-bold text-caramel hover:text-espresso transition-colors"
+              className="min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold text-caramel hover:text-espresso flex items-center transition-colors"
             >
-              View Menu & Details →
+              <span>View Details →</span>
             </Link>
           </div>
         </div>
@@ -115,7 +115,7 @@ export const CafeCard: React.FC<CafeCardProps> = ({ cafe, layout = 'grid', onFav
   }
 
   return (
-    <div className="group bg-white rounded-2xl overflow-hidden border border-latte/60 shadow-warm hover:shadow-warm-lg transition-all duration-300 flex flex-col relative">
+    <div className="group bg-white rounded-2xl overflow-hidden border border-latte/60 shadow-warm hover:shadow-warm-lg transition-all duration-300 flex flex-col relative w-full">
       {/* Photo Container */}
       <div className="relative h-48 sm:h-52 w-full overflow-hidden bg-cream-100">
         <Link to={`/cafes/${cafe.slug}`} className="block w-full h-full">
@@ -126,20 +126,20 @@ export const CafeCard: React.FC<CafeCardProps> = ({ cafe, layout = 'grid', onFav
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-out"
           />
         </Link>
-        
+
         {/* Top Badges */}
-        <div className="absolute top-3 left-3 flex flex-col gap-1 items-start">
+        <div className="absolute top-3 left-3 flex flex-col gap-1 items-start pointer-events-none">
           {isVerified && <Badge type="verified" />}
           {cafe.is_sample_data && <Badge type="sample" />}
         </div>
 
-        {/* Favourite Button */}
+        {/* Favourite Button (Touch Target >= 44px) */}
         <button
           type="button"
           onClick={handleToggleFav}
           disabled={isTogglingFav}
-          aria-label="Save to favourites"
-          className="absolute top-3 right-3 p-2 rounded-full glass-panel shadow-sm hover:scale-110 active:scale-95 transition-transform focus:outline-none"
+          aria-label={isFavourited ? 'Remove from saved' : 'Save to favourites'}
+          className="absolute top-2.5 right-2.5 min-h-[44px] min-w-[44px] p-2 rounded-full glass-panel shadow-sm hover:scale-110 active:scale-95 transition-transform focus:outline-none flex items-center justify-center"
         >
           <Heart
             className={`w-4 h-4 transition-colors ${
@@ -168,7 +168,7 @@ export const CafeCard: React.FC<CafeCardProps> = ({ cafe, layout = 'grid', onFav
           </div>
 
           <Link to={`/cafes/${cafe.slug}`} className="block">
-            <h3 className="font-serif text-lg font-bold text-espresso group-hover:text-caramel transition-colors line-clamp-1">
+            <h3 className="font-serif text-base sm:text-lg font-bold text-espresso group-hover:text-caramel transition-colors line-clamp-1">
               {cafe.name}
             </h3>
           </Link>
@@ -178,17 +178,16 @@ export const CafeCard: React.FC<CafeCardProps> = ({ cafe, layout = 'grid', onFav
           </p>
         </div>
 
-        <div className="pt-3 mt-3 border-t border-latte/40 flex items-center justify-between">
+        <div className="pt-3 mt-3 border-t border-latte/40 flex items-center justify-between gap-2">
           <StarRating rating={cafe.average_rating} reviewCount={cafe.review_count} size="sm" />
           <Link
             to={`/cafes/${cafe.slug}`}
-            className="text-xs font-bold text-caramel hover:text-espresso transition-colors"
+            className="min-h-[44px] px-2 py-2 text-xs font-bold text-caramel hover:text-espresso flex items-center transition-colors -mr-2"
           >
-            Explore →
+            <span>Explore →</span>
           </Link>
         </div>
       </div>
     </div>
   );
 };
-
