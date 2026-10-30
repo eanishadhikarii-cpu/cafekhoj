@@ -21,7 +21,7 @@ Updated: 2026-10-30
 | Role-based customer/operator/admin workflows | BLOCKED | No approved non-production role accounts/test environment supplied. Production accounts were not used for mutations. |
 | Production API CORS and auth behavior | BLOCKED | Render logs do not expose response headers. Direct API `OPTIONS` and `GET` requests failed DNS resolution (`cafekhoj-api.onrender.com`); no controlled production credentials available for login/protected requests. |
 | Production DB read-only integrity checks | BLOCKED | Render SQL integration denied by the database's empty external IP allowlist. No security setting was weakened and no production data was changed. |
-| Git commit/push | BLOCKED | Existing and newly authored work remains uncommitted. Release verification gates are incomplete, so no commit/push was made. |
+| Git commit/push | COMPLETED | Commit `191562de0fb02eab9f58bd6f948de89414d3ab49` pushed to `origin/main`; remote ref verified equal to local HEAD and worktree clean. |
 | Deployment | BLOCKED | Do not deploy until browser, production API/CORS, role workflows, and email configuration are verified. Existing Vercel deployment was READY and Render service LIVE in previously observed integration state; neither reflects this working tree. |
 
 ## Release blockers to clear
@@ -30,4 +30,4 @@ Updated: 2026-10-30
 2. Provide a non-production deployment and dedicated customer, operator, and admin test accounts (never share production passwords in chat).
 3. Provide an approved read-only production DB access path that preserves its IP allowlist, or run a reviewed read-only Django inspection from an authorized network.
 4. Confirm Render email-provider configuration and perform a controlled reset delivery test.
-5. After the above, rerun required checks, inspect the complete final diff, then commit/push/deploy and verify production.
+5. After the above, rerun required checks, inspect any new diff, then deploy only when the release gates pass and verify production.

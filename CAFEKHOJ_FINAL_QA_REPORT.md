@@ -50,8 +50,8 @@ Reset regression coverage verifies the emailed OTP via Django's test outbox, suc
 ## Git and deployment
 
 - **Current branch/HEAD:** `main` / `4878997001735a024c210116e200872811e97c11` at audit start.
-- **Commit hash:** none created for this work.
-- **Push:** not performed.
+- **Commit hash:** implementation and audit commit `191562de0fb02eab9f58bd6f948de89414d3ab49` was pushed to `origin/main`.
+- **Push:** verified; remote `main` points to `191562de0fb02eab9f58bd6f948de89414d3ab49`.
 - **Deployment:** not performed; existing deployments predate current working tree.
 - **Reason:** release gates remain incomplete; deploying untested UI/API changes would violate the requested release criteria.
 
@@ -62,6 +62,6 @@ Reset regression coverage verifies the emailed OTP via Django's test outbox, suc
 3. Run controlled production OPTIONS/GET/POST/auth requests and record actual headers/statuses once credentials and safe authorization are available.
 4. Perform read-only production Django/database checks through an authorized path that respects the existing IP allowlist.
 5. Verify Render email-provider configuration and controlled password-reset delivery.
-6. After these checks pass, review the full diff and commit, push, deploy, and retest production.
+6. After these checks pass, review any new diff, deploy, and retest production.
 
-No commit hash or production verification is reported because neither occurred.
+The code commit and push are verified; production verification and deployment have not occurred.

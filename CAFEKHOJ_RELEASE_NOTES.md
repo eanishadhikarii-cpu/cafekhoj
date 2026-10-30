@@ -22,4 +22,4 @@
 
 ## Release decision
 
-Do not deploy this working tree yet. Complete the blocked browser/viewport, non-production role, production API/CORS, and authorized read-only database checks; verify the configured email provider; then review and commit the intended diff before release. No commit or deployment was made.
+Commit `191562de0fb02eab9f58bd6f948de89414d3ab49` is pushed to `origin/main`. Do not deploy this working tree yet. Complete the blocked browser/viewport, non-production role, production API/CORS, and authorized read-only database checks; verify the configured email provider before release.
